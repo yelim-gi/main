@@ -336,7 +336,7 @@ export default function App() {
 
   const [composeItems, setComposeItems] = useState([]);
   const [salePrice, setSalePrice] = useState("39900");
-  const [feeRate, setFeeRate] = useState("3.63");
+  const [feeRate, setFeeRate] = useState("6.4");
   const [defaultSale, setDefaultSale] = useState("39900");
   const [defaultFee, setDefaultFee] = useState("3.63");
   const [customer, setCustomer] = useState("");
@@ -3490,10 +3490,9 @@ ${text}`;
             </div>
 
             <div className="filterRow calcRow">
-              <label>판매가</label><input value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
               <label>수수료율</label><input value={feeRate} onChange={(e) => setFeeRate(e.target.value)} />
               <label>목표마진율</label><input value={manualTargetMargin} onChange={(e) => setManualTargetMargin(e.target.value)} />
-              <label>상자이름/고객명</label><input value={customer} onChange={(e) => setCustomer(e.target.value)} />
+              <label>고객명</label><input value={customer} onChange={(e) => setCustomer(e.target.value)} />
               <label className="checkLine"><input checked={reorder} onChange={(e) => setReorder(e.target.checked)} type="checkbox" /> 재주문</label>
               <label>메모</label><input value={memo} onChange={(e) => setMemo(e.target.value)} />
               <button onClick={clearCompose}>주문초기화</button>
@@ -3504,12 +3503,9 @@ ${text}`;
 
             <div className="subPanel manualAiPanel">
               <h2>AI 수동박스 추천</h2>
-              <p className="statusLine">아래 판매가·마진율·캐릭터·구성느낌은 요청사항에 따로 안 적어도 AI에게 같이 전달됩니다.</p>
+              <p className="statusLine">위 통합 입력값(박스수·판매가·수수료율·목표마진율·고객명·메모)과 선택 캐릭터를 기준으로 AI가 추천합니다.</p>
 
               <div className="filterRow aiSimpleControls manualAiTopControls">
-                <label>박스수</label><input value={manualBoxCount} onChange={(e) => setManualBoxCount(e.target.value)} />
-                <label>판매가</label><input value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
-                <label>목표마진율</label><input value={manualTargetMargin} onChange={(e) => setManualTargetMargin(e.target.value)} />
                 <label>구성느낌</label><select value={manualStyle} onChange={(e) => setManualStyle(e.target.value)}><option>선택안함</option><option>자잘자잘</option><option>믹스</option><option>큼직큼직</option></select>
                 <label>캐릭터비중</label><select value={manualCharStrategy} onChange={(e) => setManualCharStrategy(e.target.value)}><option>골고루</option><option>선택 캐릭터 위주</option><option>완전 랜덤</option><option>재고 많은 캐릭터 우선</option></select>
               </div>
@@ -3696,7 +3692,6 @@ ${text}`;
           <h2>AI 랜덤스쿱 추천</h2>
           <p className="statusLine">위에서 정한 그룹/파츠 개수를 기준으로 AI가 구성합니다. 캐릭터를 선택하지 않으면 전체 재고에서 무작위/균형으로 추천합니다.</p>
           <div className="filterRow aiSimpleControls">
-            <label>판매가</label><input value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
             <label>수수료율</label><input value={feeRate} onChange={(e) => setFeeRate(e.target.value)} />
             <label>목표마진율</label><input value={scoopTargetMargin} onChange={(e) => setScoopTargetMargin(e.target.value)} />
           </div>
@@ -4009,6 +4004,31 @@ ${text}`;
 
   function normalizeZip(v) {
     return String(v || "").replace(/[^0-9]/g, "").trim();
+  }
+
+
+  function normalizePhoneForReorder(v) {
+    return String(v || "").replace(/[^0-9]/g, "");
+  }
+
+  function checkShippingReorders() {
+    if (!shippingRows || shippingRows.length === 0) return alert("확인할 택배접수 목록이 없어요.");
+    const orderPhones = new Set(
+      orders
+        .map((o) => normalizePhoneForReorder(o.phone || o.customer_phone || o.receiver_phone || o.recipient_phone || o.buyer_phone || o.tel || o.mobile || ""))
+        .filter(Boolean)
+    );
+
+    let matched = 0;
+    const next = shippingRows.map((r) => {
+      const phone = normalizePhoneForReorder(r.phone || r.receiverPhone || r.recipientPhone || r.contact || "");
+      const isReorder = phone && orderPhones.has(phone);
+      if (isReorder) matched += 1;
+      return { ...r, reorder: isReorder };
+    });
+
+    setShippingRows(next);
+    alert(`기존 주문 전화번호와 비교 완료!\n재주문 가능성이 있는 택배접수: ${matched}건`);
   }
 
   function convertShippingPaste() {

@@ -3667,3 +3667,100 @@ button:active,
     display: block !important;
   }
 }
+
+
+/* v87: 수동박스 입력 통합 / 주문관리 상세 하단 배치 */
+.manualAiTopControls label:has(+ input[value]),
+.manualAiTopControls label {
+  white-space: nowrap;
+}
+
+.ordersPageFit {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: auto minmax(360px, 520px) minmax(220px, 1fr) !important;
+  gap: 12px !important;
+  height: calc(100vh - 120px) !important;
+  overflow: hidden !important;
+}
+
+.ordersPageFit .orderTopPanel {
+  grid-column: 1 / 3 !important;
+  grid-row: 1 !important;
+}
+
+.ordersPageFit .ordersGrid,
+.ordersPageFit .fixedOrdersGrid {
+  grid-column: 1 / 3 !important;
+  grid-row: 2 !important;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 12px !important;
+  min-height: 360px !important;
+  max-height: 520px !important;
+  overflow: hidden !important;
+}
+
+.ordersPageFit .ordersGrid .panel,
+.ordersPageFit .fixedOrdersGrid .panel {
+  min-height: 360px !important;
+  max-height: 520px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.ordersPageFit .ordersGrid .tableWrap,
+.ordersPageFit .fixedOrdersGrid .tableWrap {
+  flex: 1 1 auto !important;
+  max-height: none !important;
+  overflow: auto !important;
+}
+
+.ordersPageFit .orderDetailPanel {
+  grid-column: 1 / 3 !important;
+  grid-row: 3 !important;
+  min-height: 220px !important;
+  margin-top: 8px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.ordersPageFit .v51OrderItemsTableWrap {
+  flex: 1 1 auto !important;
+  min-height: 160px !important;
+  max-height: none !important;
+  overflow: auto !important;
+}
+
+.manualWorkPanel .calcRow {
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.manualWorkPanel .calcRow label {
+  font-weight: 800 !important;
+}
+
+.manualWorkPanel .calcRow input {
+  max-width: 150px !important;
+}
+
+@media (max-width: 950px) {
+  .ordersPageFit {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .ordersPageFit .ordersGrid,
+  .ordersPageFit .fixedOrdersGrid {
+    display: block !important;
+    max-height: none !important;
+  }
+
+  .ordersPageFit .orderDetailPanel {
+    margin-top: 14px !important;
+  }
+}
