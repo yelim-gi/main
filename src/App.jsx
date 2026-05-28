@@ -4006,31 +4006,6 @@ ${text}`;
     return String(v || "").replace(/[^0-9]/g, "").trim();
   }
 
-
-  function normalizePhoneForReorder(v) {
-    return String(v || "").replace(/[^0-9]/g, "");
-  }
-
-  function checkShippingReorders() {
-    if (!shippingRows || shippingRows.length === 0) return alert("확인할 택배접수 목록이 없어요.");
-    const orderPhones = new Set(
-      orders
-        .map((o) => normalizePhoneForReorder(o.phone || o.customer_phone || o.receiver_phone || o.recipient_phone || o.buyer_phone || o.tel || o.mobile || ""))
-        .filter(Boolean)
-    );
-
-    let matched = 0;
-    const next = shippingRows.map((r) => {
-      const phone = normalizePhoneForReorder(r.phone || r.receiverPhone || r.recipientPhone || r.contact || "");
-      const isReorder = phone && orderPhones.has(phone);
-      if (isReorder) matched += 1;
-      return { ...r, reorder: isReorder };
-    });
-
-    setShippingRows(next);
-    alert(`기존 주문 전화번호와 비교 완료!\n재주문 가능성이 있는 택배접수: ${matched}건`);
-  }
-
   function convertShippingPaste() {
     const parsed = parsePastedTsv(shippingPasteText);
     if (parsed.length === 0) return alert("붙여넣은 주문 데이터가 없어요.");
@@ -4658,7 +4633,7 @@ ${text}`;
           <button onClick={handleLogout}>로그아웃</button>
         </div>
       </header>
-      <nav className="tabs">{TABS.map((tab) => <button key={tab} className={activeTab === tab ? "tab activeTab" : "tab"} onClick={() => setActiveTab(tab)}>{tab}</button>)}</nav>
+      <nav className="tabs">{TABS.map((tab) => <button key={tab} className={activeTab === tab ? "tab activeTab" : "tab"} onClick={() => { if (activeTab !== tab) setActiveTab(tab); }}>{tab}</button>)}</nav>
       {renderPage()}
       {renderGeminiAssistantWidget()}
     </div>
