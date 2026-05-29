@@ -3764,3 +3764,35 @@ button:active,
     margin-top: 14px !important;
   }
 }
+
+/* v89: 재고 검색 결과 위로 당김 + 수동박스 판매가 입력 가독성 */
+.inventoryListPanel {
+  padding-bottom: 8px !important;
+}
+.inventoryListPanel .v54BulkEditPanel,
+.inventorySelectedPanel {
+  margin: 6px 0 8px !important;
+}
+.inventoryResultArea {
+  margin-top: 0 !important;
+  min-height: 520px !important;
+  max-height: calc(100vh - 250px) !important;
+  overflow: auto !important;
+}
+.inventoryResultArea .tableWrap {
+  min-height: 500px !important;
+  max-height: calc(100vh - 270px) !important;
+  overflow: auto !important;
+}
+.calcRow input[placeholder="예: 50000"] {
+  max-width: 120px;
+  font-weight: 800;
+}
+.panel.inventoryListPanel:has(.productTable),
+.panel.inventoryListPanel {
+  height: auto !important;
+  min-height: 0 !important;
+  display: block !important;
+  grid-template-rows: none !important;
+  overflow: visible !important;
+}

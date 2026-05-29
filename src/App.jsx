@@ -292,7 +292,7 @@ export default function App() {
   const [geminiOpen, setGeminiOpen] = useState(false);
   const [geminiInput, setGeminiInput] = useState("");
   const [geminiMessages, setGeminiMessages] = useState([
-    { role: "assistant", text: "안녕하세요. 여깁니다유 운영 비서예요. 고객 요청사항 분석, 랜덤박스 조합, 상품 검색, 상품명/카테고리 수정, 택배접수 정리 등을 도와드릴게요." }
+    { role: "assistant", text: "안녕하세요. 여깁니다유 운영 비서예요. 고객 요청사항 분석, 랜덤박스 조합, 상품 검색, 상품명/카테고리/재고 수정, 재고 추가/차감까지 도와드릴게요. 실제 DB 변경은 먼저 확인받고 반영해요." }
   ]);
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiActionDraft, setGeminiActionDraft] = useState(null);
@@ -2548,8 +2548,8 @@ export default function App() {
       char2: p.char2 || "",
       category: p.category || "",
       stock: String(toInt(p.stock)),
-      wholesale: String(toInt(p.wholesale)),
-      retail: String(toInt(p.retail)),
+      wholesale: String(productWholesaleValue(p)),
+      retail: String(productRetailValue(p)),
     });
   }
 
@@ -2566,17 +2566,24 @@ export default function App() {
     if (!editProductForm?.id) return alert("수정할 상품이 없어요.");
 
     const payload = {
-      name: editProductForm.name || "",
-      char1: editProductForm.char1 || "",
-      char2: editProductForm.char2 || "",
-      category: editProductForm.category || "",
+      name: String(editProductForm.name || "").trim(),
+      char1: String(editProductForm.char1 || "").trim(),
+      char2: String(editProductForm.char2 || "").trim(),
+      category: String(editProductForm.category || "").trim(),
       stock: toInt(editProductForm.stock),
       wholesale: toInt(editProductForm.wholesale),
       retail: toInt(editProductForm.retail),
     };
 
-    const { error } = await supabase.from("products").update(payload).eq("id", editProductForm.id);
+    const { data: updatedRows, error } = await supabase
+      .from("products")
+      .update(payload)
+      .eq("id", editProductForm.id)
+      .select("*");
     if (error) return alert("재고 상품 수정 실패: " + error.message);
+
+    const updatedProduct = updatedRows?.[0] || { id: editProductForm.id, ...payload };
+    setProducts((prev) => prev.map((x) => String(x.id) === String(editProductForm.id) ? { ...x, ...updatedProduct } : x));
 
     const linked = orderItems.filter((x) => String(x.product_id) === String(editProductForm.id));
     if (linked.length > 0) {
@@ -2591,96 +2598,18 @@ export default function App() {
           .from("order_items")
           .update({
             name: payload.name,
-            product_name: payload.name,
-            char1: payload.char1,
-            char2: payload.char2,
-            category: payload.category,
             wholesale: payload.wholesale,
             retail: payload.retail,
-            wholesale_price: payload.wholesale,
-            retail_price: payload.retail,
           })
-          .eq
-  function v59ToggleBulkProduct(productId) {
-    setBulkSelectedProductIds((prev) => {
-      const id = String(productId);
-      return prev.map(String).includes(id) ? prev.filter((x) => String(x) !== id) : [...prev, productId];
-    });
-  }
-
-  function v59ClearBulkProducts() {
-    setBulkSelectedProductIds([]);
-    setBulkEditForm(null);
-  }
-
-  function v59StartBulkEditProducts() {
-    if (bulkSelectedProductIds.length === 0) return alert("일괄 수정할 상품을 체크해줘.");
-    setBulkEditForm({ name: "", char1: "", char2: "", category: "", stock: "", wholesale: "", retail: "", hidden: "" });
-  }
-
-  async function v59SaveBulkEditedProducts() {
-    if (!bulkEditForm || bulkSelectedProductIds.length === 0) return alert("일괄 수정할 상품이 없어요.");
-    const payload = {};
-    if (bulkEditForm.name.trim()) payload.name = bulkEditForm.name.trim();
-    if (bulkEditForm.char1.trim()) payload.char1 = bulkEditForm.char1.trim();
-    if (bulkEditForm.char2.trim()) payload.char2 = bulkEditForm.char2.trim();
-    if (bulkEditForm.category.trim()) payload.category = bulkEditForm.category.trim();
-    if (bulkEditForm.stock !== "") payload.stock = toInt(bulkEditForm.stock);
-    if (bulkEditForm.wholesale !== "") {
-      payload.wholesale = toInt(bulkEditForm.wholesale);
-      payload.wholesale_price = toInt(bulkEditForm.wholesale);
-    }
-    if (bulkEditForm.retail !== "") {
-      payload.retail = toInt(bulkEditForm.retail);
-      payload.retail_price = toInt(bulkEditForm.retail);
-      payload.consumer_price = toInt(bulkEditForm.retail);
-    }
-    if (Object.keys(payload).length === 0) return alert("변경할 내용을 하나 이상 입력해줘.");
-    if (!window.confirm(`${bulkSelectedProductIds.length}개 상품을 일괄 수정할까요?\n빈칸은 수정하지 않습니다.`)) return;
-
-    const { error } = await supabase.from("products").update(payload).in("id", bulkSelectedProductIds);
-    if (error) return alert("상품 일괄 수정 실패: " + error.message);
-
-    const linked = orderItems.filter((x) => bulkSelectedProductIds.map(String).includes(String(x.product_id)));
-    if (linked.length > 0 && window.confirm(`선택한 상품이 기존 주문/출고 상품목록 ${linked.length}건에 포함되어 있어요.\n주문/출고건에도 이번 일괄 수정사항을 반영할까요?`)) {
-      for (const productId of bulkSelectedProductIds) {
-        const latest = { ...products.find((p) => String(p.id) === String(productId)), ...payload };
-        const itemPayload = {};
-        if (payload.name !== undefined) { itemPayload.name = latest.name; itemPayload.product_name = latest.name; }
-        if (payload.char1 !== undefined) itemPayload.char1 = latest.char1;
-        if (payload.char2 !== undefined) itemPayload.char2 = latest.char2;
-        if (payload.category !== undefined) itemPayload.category = latest.category;
-        if (payload.wholesale !== undefined || payload.wholesale_price !== undefined) {
-          itemPayload.wholesale = productWholesaleValue(latest);
-          itemPayload.wholesale_price = productWholesaleValue(latest);
-        }
-        if (payload.retail !== undefined || payload.retail_price !== undefined || payload.consumer_price !== undefined) {
-          itemPayload.retail = productRetailValue(latest);
-          itemPayload.retail_price = productRetailValue(latest);
-          itemPayload.consumer_price = productRetailValue(latest);
-        }
-        if (Object.keys(itemPayload).length > 0) {
-          const { error: itemError } = await supabase.from("order_items").update(itemPayload).eq("product_id", productId);
-          if (itemError) return alert("주문/출고 상품목록 일괄 반영 실패: " + itemError.message);
-        }
-      }
-    }
-    alert("상품 일괄 수정 완료!");
-    v59ClearBulkProducts();
-    getProducts();
-    getOrderItems();
-  }
-
-("product_id", editProductForm.id);
-
+          .eq("product_id", editProductForm.id);
         if (itemError) return alert("주문/출고 상품목록 반영 실패: " + itemError.message);
       }
     }
 
-    alert("상품 수정 완료!");
+    alert("상품 수정 완료! 화면에도 바로 반영했어요.");
     setEditProductForm(null);
-    getProducts();
-    getOrderItems();
+    await getProducts();
+    await getOrderItems();
   }
 
 
@@ -2732,15 +2661,8 @@ export default function App() {
     if (bulkEditForm.char2.trim()) payload.char2 = bulkEditForm.char2.trim();
     if (bulkEditForm.category.trim()) payload.category = bulkEditForm.category.trim();
     if (bulkEditForm.stock !== "") payload.stock = toInt(bulkEditForm.stock);
-    if (bulkEditForm.wholesale !== "") {
-      payload.wholesale = toInt(bulkEditForm.wholesale);
-      payload.wholesale_price = toInt(bulkEditForm.wholesale);
-    }
-    if (bulkEditForm.retail !== "") {
-      payload.retail = toInt(bulkEditForm.retail);
-      payload.retail_price = toInt(bulkEditForm.retail);
-      payload.consumer_price = toInt(bulkEditForm.retail);
-    }
+    if (bulkEditForm.wholesale !== "") payload.wholesale = toInt(bulkEditForm.wholesale);
+    if (bulkEditForm.retail !== "") payload.retail = toInt(bulkEditForm.retail);
 
     if (Object.keys(payload).length === 0) return alert("변경할 내용을 하나 이상 입력해줘.");
     if (!window.confirm(`${bulkSelectedProductIds.length}개 상품을 일괄 수정할까요?\n\n빈칸은 수정하지 않습니다.`)) return;
@@ -3490,6 +3412,7 @@ ${text}`;
             </div>
 
             <div className="filterRow calcRow">
+              <label>판매가</label><input value={salePrice} onChange={(e) => setSalePrice(e.target.value)} placeholder="예: 50000" />
               <label>수수료율</label><input value={feeRate} onChange={(e) => setFeeRate(e.target.value)} />
               <label>목표마진율</label><input value={manualTargetMargin} onChange={(e) => setManualTargetMargin(e.target.value)} />
               <label>고객명</label><input value={customer} onChange={(e) => setCustomer(e.target.value)} />
@@ -4386,27 +4309,46 @@ ${text}`;
       .slice(0, limit);
   }
 
-  function parseAssistantProductNames(text) {
-    const names = [];
+  function parseAssistantProductRefs(text) {
+    const refs = [];
     String(text || "").split(/\n+/).forEach((line) => {
-      const clean = line.replace(/^[\s\-\*\d\.\)\(]+/, "").replace(/[`"']/g, "").trim();
-      if (clean && clean.length >= 2) names.push(clean);
+      const raw = line.replace(/[`"']/g, "").trim();
+      const idMatch = raw.match(/(?:ID|id|상품ID|상품 id)\s*[:#\-]?\s*(\d+)/);
+      const id = idMatch ? idMatch[1] : "";
+      const name = raw
+        .replace(/^[\s\-\*\d\.\)\(]+/, "")
+        .replace(/(?:ID|id|상품ID|상품 id)\s*[:#\-]?\s*\d+/g, "")
+        .replace(/[|\/]/g, " ")
+        .trim();
+      if (id || name.length >= 2) refs.push({ id, name });
     });
-    return names.slice(0, 30);
+    return refs.slice(0, 50);
   }
 
   function exportGeminiAnswerToManualBox(messageText) {
-    const names = parseAssistantProductNames(messageText);
+    const refs = parseAssistantProductRefs(messageText);
     const picked = [];
-    names.forEach((name) => {
-      const found = products.find((p) => String(p.name || "").includes(name) || name.includes(String(p.name || "")));
-      if (found && !picked.some((x) => String(x.id) === String(found.id))) picked.push(found);
+
+    refs.forEach((ref) => {
+      let found = null;
+      if (ref.id) found = products.find((p) => String(p.id) === String(ref.id));
+      if (!found && ref.name) {
+        const n = String(ref.name || "").toLowerCase();
+        found = products.find((p) => {
+          const pn = String(p.name || "").toLowerCase();
+          return pn && (n.includes(pn) || pn.includes(n));
+        });
+      }
+      if (found && toInt(found.stock) > 0 && !picked.some((x) => String(x.id) === String(found.id))) picked.push(found);
     });
 
     if (picked.length === 0) {
-      alert("답변에서 현재 재고 상품명을 찾지 못했어요. Gemini가 실제 상품명을 줄마다 하나씩 쓰게 다시 요청해보세요.");
+      alert("답변에서 현재 재고 상품 ID/상품명을 정확히 찾지 못했어요.\nGemini에게 '상품 ID와 상품명을 줄마다 ID:상품명 형식으로 다시 써줘'라고 요청해 주세요.");
       return;
     }
+
+    const ok = window.confirm(`${picked.length}개 상품을 수동박스 조합 리스트로 보낼까요?\n\n` + picked.map((p) => `- [${p.id}] ${p.name}`).join("\n"));
+    if (!ok) return;
 
     setComposeItems((prev) => [...prev, ...picked]);
     setActiveTab("수동박스");
@@ -4415,35 +4357,107 @@ ${text}`;
 
   function guessGeminiLocalAction(userText) {
     const text = String(userText || "").trim();
+    const normalizeTarget = (v) => String(v || "").replace(/그|상품|이름|상품명|재고|수량|추가|차감|빼줘|넣어줘|해줘|좀/g, " ").replace(/\s+/g, " ").trim();
+    const findOne = (target) => localFindProducts(normalizeTarget(target), 1)[0];
 
-    const renameMatch = text.match(/(.+?)(?:상품명|이름)?\s*(?:을|를)?\s*(.+?)(?:으로|로)\s*(?:바꿔|변경|수정)/);
-    if (renameMatch) {
-      const target = renameMatch[1].replace(/그|상품|이름|상품명/g, "").trim();
-      const newName = renameMatch[2].trim();
-      const product = localFindProducts(target, 1)[0];
-      if (product && newName) {
-        return { type: "rename_product", label: `상품명 변경: ${product.name} → ${newName}`, productId: product.id, payload: { name: newName } };
-      }
+    const settingMatch = text.match(/(판매가|수수료율|수수료|고객명|주문자|메모)\s*(?:를|을)?\s*([^\n]+?)(?:으로|로)?\s*(?:바꿔|변경|수정|설정|해줘|입력|넣어)/);
+    if (settingMatch) {
+      const key = settingMatch[1];
+      const value = settingMatch[2].replace(/원|%/g, "").trim();
+      const map = key.includes("판매가") ? "salePrice" : key.includes("수수료") ? "feeRate" : (key.includes("고객") || key.includes("주문자")) ? "customer" : "memo";
+      return { type: "set_field", label: `${key} 설정: ${value}`, payload: { field: map, value } };
     }
 
-    const categoryMatch = text.match(/(.+?)\s*(?:카테고리|분류)(?:를|을)?\s*(.+?)(?:으로|로)\s*(?:바꿔|변경|수정|분류)/);
+    const composeClearMatch = text.match(/(수동박스|조합\s*리스트|현재\s*조합).*(비워|초기화|삭제|지워)/);
+    if (composeClearMatch) {
+      return { type: "clear_compose", label: "수동박스 현재 조합 리스트 비우기" };
+    }
+
+    const composeAddMatch = text.match(/(.+?)(?:을|를)?\s*(?:수동박스|조합\s*리스트|현재\s*조합)(?:에|으로)?\s*(?:추가|넣어|보내)/);
+    if (composeAddMatch) {
+      const product = findOne(composeAddMatch[1]);
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(composeAddMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      if (toInt(product.stock) <= 0) return { type: "error", label: `현재 재고가 0개라 수동박스에 넣을 수 없어요: ${product.name}` };
+      return { type: "compose_add", label: `수동박스에 추가: [${product.id}] ${product.name}`, productId: product.id };
+    }
+
+    const addProductMatch = text.match(/상품\s*(?:추가|등록).*?상품명[:：]?\s*([^,\n]+).*?(?:재고|수량)[:：]?\s*(\d+).*?도매가[:：]?\s*(\d+).*?소비자가[:：]?\s*(\d+)/s);
+    if (addProductMatch) {
+      const name = addProductMatch[1].trim();
+      const stock = Number(addProductMatch[2]);
+      const wholesale = Number(addProductMatch[3]);
+      const retail = Number(addProductMatch[4]);
+      const char1 = (text.match(/캐릭터1[:：]?\s*([^,\n]+)/) || [])[1]?.trim() || "";
+      const char2 = (text.match(/캐릭터2[:：]?\s*([^,\n]+)/) || [])[1]?.trim() || "";
+      const category = (text.match(/카테고리[:：]?\s*([^,\n]+)/) || [])[1]?.trim() || "";
+      return { type: "add_product", label: `상품 추가: ${name} / 재고 ${stock} / 도매가 ${money(wholesale)} / 소비자가 ${money(retail)}`, payload: { name, char1, char2, category, stock, wholesale, retail, hidden: false } };
+    }
+
+    const addStockMatch = text.match(/(.+?)\s*(?:재고|수량)?\s*(?:를|을)?\s*(\d+)\s*(?:개)?\s*(?:추가|더해|늘려|입고|넣어)/);
+    if (addStockMatch) {
+      const product = findOne(addStockMatch[1]);
+      const amount = Number(addStockMatch[2]);
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(addStockMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      return {
+        type: "stock_delta",
+        label: `재고 추가: ${product.name} / 현재 ${toInt(product.stock)}개 → ${toInt(product.stock) + amount}개 (+${amount})`,
+        productId: product.id,
+        payload: { stock: toInt(product.stock) + amount },
+      };
+    }
+
+    const subtractStockMatch = text.match(/(.+?)\s*(?:재고|수량)?\s*(?:를|을)?\s*(\d+)\s*(?:개)?\s*(?:차감|빼|줄여|감소)/);
+    if (subtractStockMatch) {
+      const product = findOne(subtractStockMatch[1]);
+      const amount = Number(subtractStockMatch[2]);
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(subtractStockMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      const nextStock = Math.max(0, toInt(product.stock) - amount);
+      return {
+        type: "stock_delta",
+        label: `재고 차감: ${product.name} / 현재 ${toInt(product.stock)}개 → ${nextStock}개 (-${amount})`,
+        productId: product.id,
+        payload: { stock: nextStock },
+      };
+    }
+
+    const deleteProductMatch = text.match(/(.+?)(?:상품)?(?:을|를)?\s*(?:삭제|지워|없애)/);
+    if (deleteProductMatch && text.includes("상품")) {
+      const product = findOne(deleteProductMatch[1]);
+      if (!product) return { type: "error", label: `삭제할 상품을 못 찾았어요: ${normalizeTarget(deleteProductMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      return { type: "delete_product", label: `상품 삭제: [${product.id}] ${product.name}`, productId: product.id };
+    }
+
+    const stockSetMatch = text.match(/(.+?)\s*(?:재고|수량)(?:를|을)?\s*(\d+)\s*(?:개)?(?:로)?\s*(?:바꿔|변경|수정|설정|해줘)/);
+    if (stockSetMatch) {
+      const product = findOne(stockSetMatch[1]);
+      const stock = Number(stockSetMatch[2]);
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(stockSetMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      return { type: "update_product", label: `재고수량 변경: ${product.name} / 현재 ${toInt(product.stock)}개 → ${stock}개`, productId: product.id, payload: { stock } };
+    }
+
+    const priceMatch = text.match(/(.+?)\s*(도매가|소비자가)(?:를|을)?\s*(\d+)\s*(?:원)?(?:으로|로)?\s*(?:바꿔|변경|수정|설정|해줘)/);
+    if (priceMatch) {
+      const product = findOne(priceMatch[1]);
+      const field = priceMatch[2] === "도매가" ? "wholesale" : "retail";
+      const value = Number(priceMatch[3]);
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(priceMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      return { type: "update_product", label: `${priceMatch[2]} 변경: ${product.name} → ${money(value)}`, productId: product.id, payload: { [field]: value } };
+    }
+
+    const categoryMatch = text.match(/(.+?)\s*(?:카테고리|분류)(?:를|을)?\s*(.+?)(?:으로|로)\s*(?:바꿔|변경|수정|분류|해줘)/);
     if (categoryMatch) {
-      const target = categoryMatch[1].replace(/그|상품/g, "").trim();
+      const product = findOne(categoryMatch[1]);
       const newCategory = categoryMatch[2].trim();
-      const product = localFindProducts(target, 1)[0];
-      if (product && newCategory) {
-        return { type: "update_product", label: `카테고리 변경: ${product.name} → ${newCategory}`, productId: product.id, payload: { category: newCategory } };
-      }
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(categoryMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      return { type: "update_product", label: `카테고리 변경: ${product.name} → ${newCategory}`, productId: product.id, payload: { category: newCategory } };
     }
 
-    const stockMatch = text.match(/(.+?)\s*(?:재고|수량)(?:를|을)?\s*(\d+)\s*(?:개)?(?:로)?\s*(?:바꿔|변경|수정|해줘)/);
-    if (stockMatch) {
-      const target = stockMatch[1].replace(/그|상품/g, "").trim();
-      const stock = Number(stockMatch[2]);
-      const product = localFindProducts(target, 1)[0];
-      if (product && Number.isFinite(stock)) {
-        return { type: "update_product", label: `재고수량 변경: ${product.name} → ${stock}개`, productId: product.id, payload: { stock } };
-      }
+    const renameMatch = text.match(/(.+?)(?:상품명|이름)?\s*(?:을|를)?\s*(.+?)(?:으로|로)\s*(?:바꿔|변경|수정|해줘)/);
+    if (renameMatch) {
+      const product = findOne(renameMatch[1]);
+      const newName = renameMatch[2].trim();
+      if (!product) return { type: "error", label: `상품을 못 찾았어요: ${normalizeTarget(renameMatch[1])}\n상품명을 조금 더 정확히 적어주세요.` };
+      if (product && newName) return { type: "rename_product", label: `상품명 변경: ${product.name} → ${newName}`, productId: product.id, payload: { name: newName } };
     }
 
     return null;
@@ -4451,19 +4465,89 @@ ${text}`;
 
   async function applyGeminiAction() {
     if (!geminiActionDraft) return;
-    const { productId, payload, label } = geminiActionDraft;
-    const ok = window.confirm(`${label}\n\n이 수정사항을 실제 재고 데이터에 반영할까요?`);
+    if (geminiActionDraft.type === "error") {
+      setGeminiMessages((prev) => [...prev, { role: "assistant", text: geminiActionDraft.label }]);
+      setGeminiActionDraft(null);
+      return;
+    }
+
+    const { productId, payload, label, type } = geminiActionDraft;
+    const ok = window.confirm(`${label}\n\n이 작업을 실제 화면/DB에 반영할까요?`);
     if (!ok) return;
 
-    const { error } = await supabase.from("products").update(payload).eq("id", productId);
+    if (type === "set_field") {
+      const { field, value } = payload || {};
+      if (field === "salePrice") setSalePrice(String(toInt(value)));
+      if (field === "feeRate") setFeeRate(String(value));
+      if (field === "customer") setCustomer(String(value));
+      if (field === "memo") setMemo(String(value));
+      setGeminiMessages((prev) => [...prev, { role: "assistant", text: `반영 완료: ${label}` }]);
+      setGeminiActionDraft(null);
+      return;
+    }
+
+    if (type === "clear_compose") {
+      clearCompose();
+      setActiveTab("수동박스");
+      setGeminiMessages((prev) => [...prev, { role: "assistant", text: `반영 완료: ${label}` }]);
+      setGeminiActionDraft(null);
+      return;
+    }
+
+    if (type === "compose_add") {
+      const product = products.find((p) => String(p.id) === String(productId));
+      if (!product) {
+        alert("상품을 다시 찾지 못했어요. 새로고침 후 다시 시도해주세요.");
+        return;
+      }
+      setComposeItems((prev) => [...prev, product]);
+      setActiveTab("수동박스");
+      setGeminiMessages((prev) => [...prev, { role: "assistant", text: `반영 완료: ${label}` }]);
+      setGeminiActionDraft(null);
+      return;
+    }
+
+    if (type === "add_product") {
+      const { error } = await supabase.from("products").insert([payload]);
+      if (error) {
+        alert("상품 추가 실패: " + error.message);
+        return;
+      }
+      await getProducts();
+      setActiveTab("재고관리");
+      setGeminiMessages((prev) => [...prev, { role: "assistant", text: `반영 완료: ${label}` }]);
+      setGeminiActionDraft(null);
+      return;
+    }
+
+    if (type === "delete_product") {
+      const { error } = await supabase.from("products").delete().eq("id", productId);
+      if (error) {
+        alert("상품 삭제 실패: " + error.message);
+        return;
+      }
+      setProducts((prev) => prev.filter((x) => String(x.id) !== String(productId)));
+      await getProducts();
+      setGeminiMessages((prev) => [...prev, { role: "assistant", text: `반영 완료: ${label}` }]);
+      setGeminiActionDraft(null);
+      return;
+    }
+
+    const { data: updatedRows, error } = await supabase
+      .from("products")
+      .update(payload)
+      .eq("id", productId)
+      .select("*");
     if (error) {
       alert("수정 실패: " + error.message);
       return;
     }
 
+    const updatedProduct = updatedRows?.[0] || { id: productId, ...payload };
+    setProducts((prev) => prev.map((x) => String(x.id) === String(productId) ? { ...x, ...updatedProduct } : x));
     setGeminiMessages((prev) => [...prev, { role: "assistant", text: `반영 완료: ${label}` }]);
     setGeminiActionDraft(null);
-    getProducts();
+    await getProducts();
   }
 
   async function sendGeminiMessage() {
