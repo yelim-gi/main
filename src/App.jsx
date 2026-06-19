@@ -446,6 +446,7 @@ export default function App() {
   const [liveMemberForm, setLiveMemberForm] = useState({ name: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", points: "0", memo: "" });
   const [liveOrderForm, setLiveOrderForm] = useState({ buyer: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", paymentMethod: "계좌이체", status: "미입금", trackingNo: "", memo: "", shippingApply: true, cardApply: false, boxWeight: "2", boxVolume: "60", household: "생활용품", deliveryMessage: "", points: "0", usedPoints: 0 });
   const [liveCart, setLiveCart] = useState([]);
+  const [liveSessionDraft, setLiveSessionDraft] = useState({ notice: "", bankName: "", accountNumber: "", accountHolder: "여깁니다유" });
   const [editingLiveOrderId, setEditingLiveOrderId] = useState("");
   const [liveOrderDrafts, setLiveOrderDrafts] = useState({});
 
@@ -3754,6 +3755,16 @@ ${text}`;
 
   const selectedLiveSession = useMemo(() => liveSessions.find((s) => String(s.id) === String(selectedLiveSessionId)) || liveSessions[0] || null, [liveSessions, selectedLiveSessionId]);
 
+  useEffect(() => {
+    if (!selectedLiveSession) return;
+    setLiveSessionDraft({
+      notice: selectedLiveSession.notice || "",
+      bankName: selectedLiveSession.bankName || "",
+      accountNumber: selectedLiveSession.accountNumber || "",
+      accountHolder: selectedLiveSession.accountHolder || "여깁니다유",
+    });
+  }, [selectedLiveSession?.id]);
+
   const selectedLiveProducts = selectedLiveSession?.products || [];
 
   const liveFilteredProducts = useMemo(() => {
@@ -3868,6 +3879,17 @@ ${text}`;
     } catch (error) {
       alert("라방 설정 저장 실패: " + error.message);
     }
+  }
+
+  async function saveLiveSessionDraft() {
+    if (!selectedLiveSession) return alert("저장할 라방을 선택해줘.");
+    await updateLiveSession({
+      notice: liveSessionDraft.notice,
+      bankName: liveSessionDraft.bankName,
+      accountNumber: liveSessionDraft.accountNumber,
+      accountHolder: liveSessionDraft.accountHolder,
+    });
+    alert("라방 계좌/안내사항을 저장했어요.");
   }
 
   async function addProductToLive(product) {
@@ -4519,10 +4541,11 @@ ${text}`;
           </div>
           {selectedLiveSession && <>
             <div className="filterRow">
-              <label>안내사항</label><textarea className="liveNoticeInput" value={selectedLiveSession.notice || ""} onChange={(e) => updateLiveSession({ notice: e.target.value })} />
-              <label>은행</label><input value={selectedLiveSession.bankName || ""} onChange={(e) => updateLiveSession({ bankName: e.target.value })} />
-              <label>계좌</label><input value={selectedLiveSession.accountNumber || ""} onChange={(e) => updateLiveSession({ accountNumber: e.target.value })} />
-              <label>예금주</label><input value={selectedLiveSession.accountHolder || ""} onChange={(e) => updateLiveSession({ accountHolder: e.target.value })} />
+              <label>안내사항</label><textarea className="liveNoticeInput" value={liveSessionDraft.notice} onChange={(e) => setLiveSessionDraft((prev) => ({ ...prev, notice: e.target.value }))} />
+              <label>은행</label><input value={liveSessionDraft.bankName} onChange={(e) => setLiveSessionDraft((prev) => ({ ...prev, bankName: e.target.value }))} />
+              <label>계좌</label><input value={liveSessionDraft.accountNumber} onChange={(e) => setLiveSessionDraft((prev) => ({ ...prev, accountNumber: e.target.value }))} />
+              <label>예금주</label><input value={liveSessionDraft.accountHolder} onChange={(e) => setLiveSessionDraft((prev) => ({ ...prev, accountHolder: e.target.value }))} />
+              <button type="button" onClick={saveLiveSessionDraft}>라방 계좌/안내사항 저장</button>
             </div>
             <div className="liveSummaryCards">
               <div><span>주문자수</span><b>{sales.buyerCount.toLocaleString()}명</b></div>
