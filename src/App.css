@@ -3841,3 +3841,80 @@ body:has(.fixedCharacterModalOverlay) {
 #manual-product-search-input {
   scroll-margin-top: 80px;
 }
+
+/* v91: 라방주문 페이지 */
+.livePage { width: 100%; }
+.liveTopPanel { overflow: visible !important; }
+.liveGrid { display: grid; grid-template-columns: 1.15fr 1fr 1.1fr; gap: 8px; align-items: start; }
+.liveGrid > .panel { height: calc(100vh - 160px); min-height: 720px; overflow: hidden !important; display: flex; flex-direction: column; }
+.liveGrid .tableWrap { border: 1px solid #bbb; background: #fff; max-height: none !important; overflow-y: auto; }
+.liveProductSourceTable { height: 230px !important; }
+.liveSelectedTable { height: 385px !important; }
+.liveCartTable { height: 320px !important; }
+.liveOrdersTable { height: 260px !important; }
+.liveMembersTable { height: 220px !important; }
+.liveGrid input, .liveGrid select, .liveTopPanel input, .liveTopPanel select { min-width: 70px; }
+.liveGrid .wideInput, .liveTopPanel .wideInput { min-width: 240px; flex: 1; }
+.liveSelectedTable td:nth-child(1), .liveCartTable td:nth-child(1), .liveOrdersTable td:nth-child(5), .liveMembersTable td:nth-child(5) { white-space: normal !important; line-height: 1.25; height: auto; }
+.liveSelectedTable input, .liveCartTable input, .liveOrdersTable input { width: 100%; min-width: 48px; }
+.liveOrdersTable select { width: 100%; min-width: 72px; }
+.dangerRow td { background: #ffe1e1 !important; font-weight: 800; }
+@media (max-width: 1400px) { .liveGrid { grid-template-columns: 1fr; } .liveGrid > .panel { height: auto; min-height: 560px; } }
+
+/* v92 라방주문 Supabase/실사용 보강 */
+.liveNoticeInput {
+  min-width: 280px;
+  width: 360px;
+  height: 54px;
+  border: 1px solid #999;
+  background: #fff;
+  color: #4a3b00 !important;
+  padding: 5px;
+  font-size: 11px;
+  resize: vertical;
+}
+.liveSummaryCards {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(90px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.liveSummaryCards > div {
+  border: 1px solid #d6c15c;
+  background: #fffdf3;
+  padding: 7px;
+  text-align: center;
+}
+.liveSummaryCards span {
+  display: block;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.liveSummaryCards b {
+  font-size: 13px;
+}
+.lockedRow td {
+  background: #f7f2dc !important;
+}
+.liveOrdersTable button + button,
+.liveMembersTable button + button {
+  margin-left: 3px;
+}
+.liveOrdersTable th:nth-child(1), .liveOrdersTable td:nth-child(1) { width: 10%; }
+.liveOrdersTable th:nth-child(2), .liveOrdersTable td:nth-child(2) { width: 9%; }
+.liveOrdersTable th:nth-child(3), .liveOrdersTable td:nth-child(3) { width: 8%; }
+.liveOrdersTable th:nth-child(4), .liveOrdersTable td:nth-child(4) { width: 12%; }
+.liveOrdersTable th:nth-child(5), .liveOrdersTable td:nth-child(5) { width: 13%; }
+.liveOrdersTable th:nth-child(6), .liveOrdersTable td:nth-child(6) { width: 18%; }
+.liveOrdersTable th:nth-child(7), .liveOrdersTable td:nth-child(7) { width: 8%; }
+.liveOrdersTable th:nth-child(8), .liveOrdersTable td:nth-child(8) { width: 12%; }
+.liveOrdersTable th:nth-child(9), .liveOrdersTable td:nth-child(9) { width: 10%; }
+.liveOrdersTable input,
+.liveOrdersTable select {
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .liveSummaryCards { grid-template-columns: repeat(2, 1fr); }
+  .liveNoticeInput { width: 100%; }
+}

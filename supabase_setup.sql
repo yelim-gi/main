@@ -150,3 +150,70 @@ create policy "authenticated audit_logs" on audit_logs for all to authenticated 
 alter table orders add column if not exists canceled_at text;
 alter table orders add column if not exists deleted_at text;
 alter table orders add column if not exists cancel_detail text;
+
+-- v92 live broadcast order management
+create table if not exists live_sessions (
+  id text primary key,
+  created_at text,
+  title text,
+  date text,
+  keep_days text default '7',
+  shipping_fee text default '4000',
+  card_fee_rate text default '3',
+  bank_name text,
+  account_number text,
+  account_holder text,
+  notice text,
+  products jsonb default '[]'::jsonb
+);
+
+create table if not exists live_members (
+  id text primary key,
+  updated_at text,
+  name text,
+  phone text,
+  address text,
+  points text default '0',
+  memo text,
+  keep_start text,
+  keep_days text default '7'
+);
+
+create table if not exists live_orders (
+  id text primary key,
+  session_id text,
+  live_title text,
+  live_date text,
+  created_at text,
+  updated_at text,
+  buyer text,
+  phone text,
+  address text,
+  payment_method text default '계좌이체',
+  status text default '미입금',
+  tracking_no text,
+  memo text,
+  shipping_apply boolean default true,
+  card_apply boolean default false,
+  items jsonb default '[]'::jsonb,
+  subtotal integer default 0,
+  pay_subtotal integer default 0,
+  shipping integer default 0,
+  card_fee integer default 0,
+  total integer default 0,
+  locked boolean default false,
+  canceled_at text,
+  cancel_reason text
+);
+
+alter table live_sessions enable row level security;
+alter table live_members enable row level security;
+alter table live_orders enable row level security;
+
+drop policy if exists "authenticated live_sessions" on live_sessions;
+drop policy if exists "authenticated live_members" on live_members;
+drop policy if exists "authenticated live_orders" on live_orders;
+
+create policy "authenticated live_sessions" on live_sessions for all to authenticated using (true) with check (true);
+create policy "authenticated live_members" on live_members for all to authenticated using (true) with check (true);
+create policy "authenticated live_orders" on live_orders for all to authenticated using (true) with check (true);
