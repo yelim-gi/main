@@ -217,3 +217,21 @@ drop policy if exists "authenticated live_orders" on live_orders;
 create policy "authenticated live_sessions" on live_sessions for all to authenticated using (true) with check (true);
 create policy "authenticated live_members" on live_members for all to authenticated using (true) with check (true);
 create policy "authenticated live_orders" on live_orders for all to authenticated using (true) with check (true);
+
+-- v94 live page workflow refinements
+-- 기존 라방 테이블을 유지하면서 주문/회원/택배/합배송에 필요한 컬럼을 추가합니다.
+alter table live_members add column if not exists postal_code text;
+alter table live_members add column if not exists base_address text;
+alter table live_members add column if not exists detail_address text;
+
+alter table live_orders add column if not exists postal_code text;
+alter table live_orders add column if not exists base_address text;
+alter table live_orders add column if not exists detail_address text;
+alter table live_orders add column if not exists box_weight text default '2';
+alter table live_orders add column if not exists box_volume text default '60';
+alter table live_orders add column if not exists household text default '생활용품';
+alter table live_orders add column if not exists delivery_message text;
+alter table live_orders add column if not exists member_key text;
+alter table live_orders add column if not exists bundle_id text;
+alter table live_orders add column if not exists deducted boolean default false;
+alter table live_orders add column if not exists paid_at text;

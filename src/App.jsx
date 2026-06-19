@@ -13,7 +13,7 @@ const PRICE_RANGES = [
   "20000~25000", "25000~30000", "30000~35000", "35000+",
 ];
 
-const TABS = ["대시보드", "정산매입매출", "AI사입입고분석", "재고관리", "수동박스", "랜덤스쿱", "주문관리", "택배접수", "라방주문"];
+const TABS = ["대시보드", "정산매입매출", "AI사입입고분석", "재고관리", "수동박스", "주문관리", "택배접수", "라방주문"];
 
 function nowString() {
   const d = new Date();
@@ -440,8 +440,8 @@ export default function App() {
     bankName: "", accountNumber: "", accountHolder: "여깁니다유",
     notice: "입금 확인 순서대로 포장 후 출고됩니다.\n킵 상품은 킵 기간 만료 후 자동 출고됩니다.\n본 정산서는 여깁니다유 라이브 구매 확인용이며 외부 공유를 금합니다."
   });
-  const [liveMemberForm, setLiveMemberForm] = useState({ name: "", phone: "", address: "", points: "0", memo: "", keepStart: "", keepDays: "7" });
-  const [liveOrderForm, setLiveOrderForm] = useState({ buyer: "", phone: "", address: "", paymentMethod: "계좌이체", status: "미입금", trackingNo: "", memo: "", shippingApply: true, cardApply: false });
+  const [liveMemberForm, setLiveMemberForm] = useState({ name: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", points: "0", memo: "" });
+  const [liveOrderForm, setLiveOrderForm] = useState({ buyer: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", paymentMethod: "계좌이체", status: "미입금", trackingNo: "", memo: "", shippingApply: true, cardApply: false, boxWeight: "2", boxVolume: "60", household: "생활용품", deliveryMessage: "" });
   const [liveCart, setLiveCart] = useState([]);
 
 
@@ -3574,7 +3574,10 @@ ${text}`;
       updatedAt: r.updated_at || r.updatedAt || "",
       name: r.name || "",
       phone: r.phone || "",
-      address: r.address || "",
+      postalCode: r.postal_code || r.postalCode || "",
+      baseAddress: r.base_address || r.baseAddress || "",
+      detailAddress: r.detail_address || r.detailAddress || "",
+      address: r.address || [r.base_address || r.baseAddress || "", r.detail_address || r.detailAddress || ""].filter(Boolean).join(" "),
       points: String(r.points ?? "0"),
       memo: r.memo || "",
       keepStart: r.keep_start || r.keepStart || "",
@@ -3588,7 +3591,10 @@ ${text}`;
       updated_at: row.updatedAt || nowString(),
       name: row.name || "",
       phone: row.phone || "",
-      address: row.address || "",
+      postal_code: row.postalCode || "",
+      base_address: row.baseAddress || "",
+      detail_address: row.detailAddress || "",
+      address: row.address || [row.baseAddress || "", row.detailAddress || ""].filter(Boolean).join(" "),
       points: String(row.points ?? "0"),
       memo: row.memo || "",
       keep_start: row.keepStart || "",
@@ -3606,7 +3612,10 @@ ${text}`;
       updatedAt: r.updated_at || r.updatedAt || "",
       buyer: r.buyer || "",
       phone: r.phone || "",
-      address: r.address || "",
+      postalCode: r.postal_code || r.postalCode || "",
+      baseAddress: r.base_address || r.baseAddress || "",
+      detailAddress: r.detail_address || r.detailAddress || "",
+      address: r.address || [r.base_address || r.baseAddress || "", r.detail_address || r.detailAddress || ""].filter(Boolean).join(" "),
       paymentMethod: r.payment_method || r.paymentMethod || "계좌이체",
       status: r.status || "미입금",
       trackingNo: r.tracking_no || r.trackingNo || "",
@@ -3622,6 +3631,14 @@ ${text}`;
       locked: !!r.locked,
       canceledAt: r.canceled_at || r.canceledAt || "",
       cancelReason: r.cancel_reason || r.cancelReason || "",
+      boxWeight: String(r.box_weight ?? r.boxWeight ?? "2"),
+      boxVolume: String(r.box_volume ?? r.boxVolume ?? "60"),
+      household: r.household || "생활용품",
+      deliveryMessage: r.delivery_message || r.deliveryMessage || "",
+      memberKey: r.member_key || r.memberKey || "",
+      bundleId: r.bundle_id || r.bundleId || "",
+      deducted: !!r.deducted,
+      paidAt: r.paid_at || r.paidAt || "",
     };
   }
 
@@ -3635,7 +3652,10 @@ ${text}`;
       updated_at: row.updatedAt || "",
       buyer: row.buyer || "",
       phone: row.phone || "",
-      address: row.address || "",
+      postal_code: row.postalCode || "",
+      base_address: row.baseAddress || "",
+      detail_address: row.detailAddress || "",
+      address: row.address || [row.baseAddress || "", row.detailAddress || ""].filter(Boolean).join(" "),
       payment_method: row.paymentMethod || "계좌이체",
       status: row.status || "미입금",
       tracking_no: row.trackingNo || "",
@@ -3651,6 +3671,14 @@ ${text}`;
       locked: !!row.locked,
       canceled_at: row.canceledAt || "",
       cancel_reason: row.cancelReason || "",
+      box_weight: String(row.boxWeight || "2"),
+      box_volume: String(row.boxVolume || "60"),
+      household: row.household || "생활용품",
+      delivery_message: row.deliveryMessage || "",
+      member_key: row.memberKey || makeMemberKey(row.buyer, row.phone),
+      bundle_id: row.bundleId || "",
+      deducted: !!row.deducted,
+      paid_at: row.paidAt || "",
     };
   }
 
@@ -3733,7 +3761,7 @@ ${text}`;
       .filter((o) => !selectedLiveSession || String(o.sessionId) === String(selectedLiveSession.id))
       .filter((o) => liveStatusFilter === "전체" || String(o.status || "") === liveStatusFilter)
       .filter((o) => livePaymentFilter === "전체" || String(o.paymentMethod || "") === livePaymentFilter)
-      .filter((o) => !liveDueOnly || String(o.status || "") === "킵중" || keepDday({ keepStart: o.createdAt?.slice(0, 10), keepDays: selectedLiveSession?.keepDays || 7 }).includes("출고필요"))
+      .filter((o) => !liveDueOnly || isLiveKeepDueSoon(o))
       .filter((o) => !kw || String(o.buyer || "").toLowerCase().includes(kw) || String(o.phone || "").includes(kw) || String(o.trackingNo || "").toLowerCase().includes(kw) || String(o.memo || "").toLowerCase().includes(kw))
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   }, [liveOrders, selectedLiveSession, liveStatusFilter, livePaymentFilter, liveOrderSearch, liveDueOnly]);
@@ -3745,6 +3773,60 @@ ${text}`;
 
   function makeLiveId(prefix = "live") {
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`;
+  }
+
+
+  function onlyDigits(v) {
+    return String(v || "").replace(/[^0-9]/g, "");
+  }
+
+  function phoneLast4(v) {
+    const d = onlyDigits(v);
+    return d.slice(-4);
+  }
+
+  function makeMemberKey(name, phone) {
+    const n = String(name || "").trim().replace(/\s+/g, "");
+    const last = phoneLast4(phone);
+    return n && last ? `${n}-${last}` : "";
+  }
+
+  function orderAddressOf(row) {
+    return row.address || [row.baseAddress || "", row.detailAddress || ""].filter(Boolean).join(" ");
+  }
+
+  function liveOrderKeepDday(order) {
+    if (String(order?.status || "") !== "정산후킵") return "-";
+    const session = liveSessions.find((s) => String(s.id) === String(order.sessionId)) || selectedLiveSession;
+    const startValue = order.liveDate || session?.date || order.createdAt?.slice(0, 10);
+    if (!startValue) return "-";
+    const start = new Date(startValue);
+    if (Number.isNaN(start.getTime())) return "-";
+    const end = new Date(start);
+    end.setDate(end.getDate() + toInt(session?.keepDays || 0));
+    const diff = Math.ceil((end.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    if (diff > 0) return `D-${diff}`;
+    if (diff === 0) return "D-DAY";
+    return `출고필요 D+${Math.abs(diff)}`;
+  }
+
+  function isLiveKeepDueSoon(order) {
+    const text = liveOrderKeepDday(order);
+    if (text.includes("출고필요") || text === "D-DAY") return true;
+    const m = text.match(/^D-(\d+)$/);
+    return !!m && Number(m[1]) <= 2;
+  }
+
+  function sameLiveMemberOrders(form) {
+    const key = makeMemberKey(form.buyer, form.phone);
+    if (!key) return [];
+    return liveOrders.filter((o) => !o.canceledAt && String(o.status || "") !== "출고완료" && makeMemberKey(o.buyer, o.phone) === key);
+  }
+
+  function getBundleOrders(order) {
+    if (!order) return [];
+    if (order.bundleId) return liveOrders.filter((o) => !o.canceledAt && String(o.bundleId) === String(order.bundleId));
+    return [order];
   }
 
   async function createLiveSession() {
@@ -3774,30 +3856,36 @@ ${text}`;
 
   async function addProductToLive(product) {
     if (!selectedLiveSession) return alert("먼저 라방을 생성하거나 선택해줘.");
+    if (toInt(product.stock) <= 0) return alert("본재고가 부족해요.");
     const session = selectedLiveSession;
-    let nextProducts = [];
-    const exists = (session.products || []).find((x) => String(x.productId) === String(product.id));
-    if (exists) {
-      nextProducts = (session.products || []).map((x) => {
-        if (String(x.productId) !== String(product.id)) return x;
-        const sold = Math.max(0, toInt(x.liveQty) - toInt(x.remainingQty));
-        const nextLiveQty = Math.min(toInt(product.stock), toInt(x.liveQty) + 1);
-        return { ...x, stock: toInt(product.stock), liveQty: String(nextLiveQty), remainingQty: String(Math.max(0, nextLiveQty - sold)) };
-      });
-    } else {
-      const item = {
-        id: makeLiveId("liveitem"), productId: product.id, name: product.name, char1: product.char1, char2: product.char2,
-        category: product.category, stock: toInt(product.stock), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
-        liveQty: "1", remainingQty: "1", memo: ""
-      };
-      nextProducts = [item, ...(session.products || [])];
-    }
-    const nextSession = { ...session, products: nextProducts };
     try {
+      const current = products.find((p) => String(p.id) === String(product.id)) || product;
+      if (toInt(current.stock) <= 0) return alert("본재고가 부족해요.");
+      const nextStock = toInt(current.stock) - 1;
+      const { error: stockError } = await supabase.from("products").update({ stock: nextStock }).eq("id", product.id);
+      if (stockError) throw stockError;
+
+      let nextProducts = [];
+      const exists = (session.products || []).find((x) => String(x.productId) === String(product.id));
+      if (exists) {
+        nextProducts = (session.products || []).map((x) => String(x.productId) === String(product.id)
+          ? { ...x, liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
+          : x);
+      } else {
+        const item = {
+          id: makeLiveId("liveitem"), productId: product.id, name: product.name, char1: product.char1, char2: product.char2,
+          category: product.category, wholesale: toInt(product.wholesale), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
+          liveQty: "1", remainingQty: "1", memo: ""
+        };
+        nextProducts = [item, ...(session.products || [])];
+      }
+      const nextSession = { ...session, products: nextProducts };
       await saveLiveSessionDb(nextSession);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s)));
+      await getProducts();
     } catch (error) {
       alert("라방 상품 추가 실패: " + error.message);
+      getProducts();
     }
   }
 
@@ -3815,14 +3903,28 @@ ${text}`;
     }
   }
 
-  function changeLiveQty(item, value) {
+  async function changeLiveQty(item, value) {
+    if (!selectedLiveSession) return;
     const currentLiveQty = toInt(item.liveQty);
     const currentRemaining = toInt(item.remainingQty);
-    const sold = Math.max(0, currentLiveQty - currentRemaining);
-    const maxStock = toInt(item.stock);
-    const nextLiveQty = Math.min(maxStock, Math.max(sold, toInt(value)));
-    if (toInt(value) < sold) alert(`이미 ${sold}개 판매된 상품이라 배정수량을 ${sold}개보다 낮출 수 없어요.`);
-    updateLiveItem(item.id, { liveQty: String(nextLiveQty), remainingQty: String(Math.max(0, nextLiveQty - sold)) });
+    const reservedOrSold = Math.max(0, currentLiveQty - currentRemaining);
+    const requested = Math.max(reservedOrSold, toInt(value));
+    if (toInt(value) < reservedOrSold) alert(`이미 주문에 잡힌 수량이 ${reservedOrSold}개라 배정수량을 낮출 수 없어요.`);
+    const delta = requested - currentLiveQty;
+    const product = products.find((p) => String(p.id) === String(item.productId));
+    if (delta > 0 && toInt(product?.stock) < delta) return alert(`본재고가 부족해요. 추가 가능: ${toInt(product?.stock)}개`);
+    try {
+      if (delta !== 0) {
+        const nextStock = toInt(product?.stock) - delta;
+        const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", item.productId);
+        if (error) throw error;
+      }
+      await updateLiveItem(item.id, { liveQty: String(requested), remainingQty: String(Math.max(0, currentRemaining + delta)) });
+      await getProducts();
+    } catch (error) {
+      alert("라방 배정수량 수정 실패: " + error.message);
+      getProducts();
+    }
   }
 
   function changeLivePrice(item, value) {
@@ -3842,64 +3944,63 @@ ${text}`;
   async function removeLiveItem(itemId) {
     if (!selectedLiveSession) return;
     const target = (selectedLiveSession.products || []).find((it) => String(it.id) === String(itemId));
-    if (target && toInt(target.liveQty) !== toInt(target.remainingQty)) return alert("이미 판매된 수량이 있는 상품은 삭제할 수 없어요. 주문 취소/복구 후 삭제해줘.");
-    const nextSession = { ...selectedLiveSession, products: (selectedLiveSession.products || []).filter((it) => String(it.id) !== String(itemId)) };
+    if (!target) return;
+    if (toInt(target.liveQty) !== toInt(target.remainingQty)) return alert("이미 주문에 잡힌 수량이 있는 상품은 삭제할 수 없어요. 주문 취소/복구 후 삭제해줘.");
+    const ok = window.confirm(`${target.name} 라방 배정 ${target.liveQty}개를 본재고로 돌리고 삭제할까요?`);
+    if (!ok) return;
     try {
+      const current = products.find((p) => String(p.id) === String(target.productId));
+      const { error: stockError } = await supabase.from("products").update({ stock: toInt(current?.stock) + toInt(target.liveQty) }).eq("id", target.productId);
+      if (stockError) throw stockError;
+      const nextSession = { ...selectedLiveSession, products: (selectedLiveSession.products || []).filter((it) => String(it.id) !== String(itemId)) };
       await saveLiveSessionDb(nextSession);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
+      await getProducts();
     } catch (error) {
       alert("라방 상품 삭제 실패: " + error.message);
+      getProducts();
     }
   }
 
   async function saveLiveMember() {
     const name = liveMemberForm.name.trim();
     if (!name) return alert("회원 이름을 입력해줘.");
-    const keepStart = liveMemberForm.keepStart || "";
-    const keepDays = toInt(liveMemberForm.keepDays || selectedLiveSession?.keepDays || 7);
-    const existing = liveMembers.find((m) => String(m.name || "").trim() === name || (liveMemberForm.phone && String(m.phone) === String(liveMemberForm.phone)));
-    const row = { id: existing?.id || makeLiveId("member"), updatedAt: nowString(), ...liveMemberForm, name, keepStart, keepDays: String(keepDays) };
+    const key = makeMemberKey(name, liveMemberForm.phone);
+    const existing = liveMembers.find((m) => (key && makeMemberKey(m.name, m.phone) === key) || String(m.id) === String(liveMemberForm.id || ""));
+    const row = { id: existing?.id || makeLiveId("member"), updatedAt: nowString(), ...liveMemberForm, name, address: [liveMemberForm.baseAddress || "", liveMemberForm.detailAddress || ""].filter(Boolean).join(" ") };
     try {
       await saveLiveMemberDb(row);
       setLiveMembers((prev) => existing ? prev.map((m) => String(m.id) === String(existing.id) ? { ...m, ...row } : m) : [row, ...prev]);
-      setLiveOrderForm((prev) => ({ ...prev, buyer: row.name, phone: row.phone || "", address: row.address || "" }));
-      setLiveMemberForm({ name: "", phone: "", address: "", points: "0", memo: "", keepStart: "", keepDays: selectedLiveSession?.keepDays || "7" });
+      setLiveOrderForm((prev) => ({ ...prev, buyer: row.name, phone: row.phone || "", postalCode: row.postalCode || "", baseAddress: row.baseAddress || "", detailAddress: row.detailAddress || "", address: row.address || "" }));
+      setLiveMemberForm({ name: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", points: "0", memo: "" });
     } catch (error) {
       alert("회원 저장 실패: " + error.message);
     }
   }
 
   function loadMemberToOrder(member) {
-    setLiveOrderForm((prev) => ({ ...prev, buyer: member.name || "", phone: member.phone || "", address: member.address || "", memo: member.memo || prev.memo }));
-    setLiveMemberForm({ name: member.name || "", phone: member.phone || "", address: member.address || "", points: String(member.points || 0), memo: member.memo || "", keepStart: member.keepStart || "", keepDays: String(member.keepDays || selectedLiveSession?.keepDays || 7) });
+    setLiveOrderForm((prev) => ({ ...prev, buyer: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", memo: member.memo || prev.memo }));
+    setLiveMemberForm({ name: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(member.points || 0), memo: member.memo || "" });
   }
 
   async function deleteLiveMember(member) {
     if (!member?.id) return;
-    if (!window.confirm(`${member.name} 회원 메모를 삭제할까요?`)) return;
+    if (!window.confirm(`${member.name} 회원 정보를 삭제할까요?`)) return;
     const { error } = await supabase.from("live_members").delete().eq("id", member.id);
     if (error) return alert("회원 삭제 실패: " + error.message);
     setLiveMembers((prev) => prev.filter((m) => String(m.id) !== String(member.id)));
   }
 
   function keepDday(member) {
-    if (!member.keepStart) return "-";
-    const start = new Date(member.keepStart);
-    if (Number.isNaN(start.getTime())) return "-";
-    const end = new Date(start);
-    end.setDate(end.getDate() + toInt(member.keepDays || 0));
-    const diff = Math.ceil((end.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-    if (diff > 0) return `D-${diff}`;
-    if (diff === 0) return "D-DAY";
-    return `출고필요 D+${Math.abs(diff)}`;
+    return "-";
   }
 
   function addLiveItemToCart(item) {
-    if (toInt(item.remainingQty) <= 0) return alert("라방 배정 수량이 없어요.");
+    if (toInt(item.remainingQty) <= 0) return alert("라방 남은 수량이 없어요.");
     setLiveCart((prev) => {
       const exists = prev.find((x) => String(x.liveItemId) === String(item.id));
       if (exists) return prev.map((x) => String(x.liveItemId) === String(item.id) ? { ...x, qty: Math.min(toInt(item.remainingQty), toInt(x.qty) + 1) } : x);
-      return [{ liveItemId: item.id, productId: item.productId, name: item.name, char1: item.char1, char2: item.char2, qty: 1, price: toInt(item.livePrice), prepaid: "N" }, ...prev];
+      return [{ liveItemId: item.id, productId: item.productId, name: item.name, char1: item.char1, char2: item.char2, wholesale: toInt(item.wholesale), qty: 1, price: toInt(item.livePrice), prepaid: "N" }, ...prev];
     });
   }
 
@@ -3928,62 +4029,46 @@ ${text}`;
   async function saveLiveOrderAndDeduct() {
     if (!selectedLiveSession) return alert("라방을 선택해줘.");
     if (!liveOrderForm.buyer.trim()) return alert("구매자명을 입력해줘.");
+    if (!liveOrderForm.phone.trim()) return alert("전화번호를 입력해줘. 같은 회원 판단에 필요해.");
     if (liveCart.length === 0) return alert("주문 품목을 추가해줘.");
 
     for (const item of liveCart) {
       const liveItem = selectedLiveProducts.find((li) => String(li.id) === String(item.liveItemId));
-      const current = products.find((p) => String(p.id) === String(item.productId));
       if (!liveItem) return alert(`라방 상품을 찾을 수 없어요: ${item.name}`);
       if (toInt(item.qty) <= 0) return alert(`수량을 확인해줘: ${item.name}`);
       if (toInt(item.qty) > toInt(liveItem.remainingQty)) return alert(`라방 남은 수량을 초과했어요: ${item.name}`);
-      if (toInt(item.qty) > toInt(current?.stock)) return alert(`실제 재고가 부족해요: ${item.name}`);
     }
 
     const summary = liveCartSummary();
-    const ok = window.confirm(`주문 저장 및 실제 재고를 차감할까요?\n\n구매자: ${liveOrderForm.buyer}\n품목: ${liveCart.length}종\n최종 결제금액: ${money(summary.total)}`);
+    const ok = window.confirm(`주문을 미입금 상태로 저장하고 라방 재고를 잡아둘까요?\n\n구매자: ${liveOrderForm.buyer}\n품목: ${liveCart.length}종\n최종 결제금액: ${money(summary.total)}`);
     if (!ok) return;
 
-    const rollback = [];
     try {
-      await createInventoryBackup("live_order_before_deduct");
-      for (const item of liveCart) {
-        const current = products.find((p) => String(p.id) === String(item.productId));
-        const oldStock = toInt(current?.stock);
-        const nextStock = Math.max(0, oldStock - toInt(item.qty));
-        rollback.push({ productId: item.productId, stock: oldStock });
-        const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", item.productId);
-        if (error) throw new Error(`재고 차감 실패: ${item.name}\n${error.message}`);
-      }
-
       const nextSession = {
         ...selectedLiveSession,
         products: (selectedLiveSession.products || []).map((li) => {
-          const sold = liveCart.filter((c) => String(c.liveItemId) === String(li.id)).reduce((sum, c) => sum + toInt(c.qty), 0);
-          return sold ? { ...li, remainingQty: String(Math.max(0, toInt(li.remainingQty) - sold)) } : li;
+          const reserved = liveCart.filter((c) => String(c.liveItemId) === String(li.id)).reduce((sum, c) => sum + toInt(c.qty), 0);
+          return reserved ? { ...li, remainingQty: String(Math.max(0, toInt(li.remainingQty) - reserved)) } : li;
         })
       };
       await saveLiveSessionDb(nextSession);
 
+      const memberKey = makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone);
       const order = {
         id: makeLiveId("liveorder"), sessionId: selectedLiveSession.id, liveTitle: selectedLiveSession.title, liveDate: selectedLiveSession.date,
-        createdAt: nowString(), updatedAt: "", locked: false, canceledAt: "", cancelReason: "",
-        ...liveOrderForm, items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary,
+        createdAt: nowString(), updatedAt: "", locked: false, canceledAt: "", cancelReason: "", deducted: false, paidAt: "", memberKey,
+        ...liveOrderForm, status: "미입금", address: orderAddressOf(liveOrderForm), items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary,
       };
       await saveLiveOrderDb(order);
 
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
       setLiveOrders((prev) => [order, ...prev]);
-      await writeAudit("live_order_deduct", `${selectedLiveSession.title} / ${liveOrderForm.buyer} / ${summary.total}`);
-      await getProducts();
+      await writeAudit("live_order_saved", `${selectedLiveSession.title} / ${liveOrderForm.buyer} / ${summary.total}`);
       setLiveCart([]);
-      setLiveOrderForm((prev) => ({ ...prev, buyer: "", phone: "", address: "", memo: "", trackingNo: "", status: "미입금" }));
-      alert("라방 주문 저장 및 재고 차감 완료!");
+      setLiveOrderForm((prev) => ({ ...prev, buyer: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", memo: "", trackingNo: "", status: "미입금", deliveryMessage: "" }));
+      alert("라방 주문이 미입금 상태로 저장됐어요. 입금 확인 후 상태를 입금확인으로 바꾸면 매출에 반영돼요.");
     } catch (error) {
-      for (const row of rollback) {
-        try { await supabase.from("products").update({ stock: row.stock }).eq("id", row.productId); } catch {}
-      }
       alert(String(error.message || error));
-      getProducts();
     }
   }
 
@@ -3991,7 +4076,13 @@ ${text}`;
     const current = liveOrders.find((o) => String(o.id) === String(orderId));
     if (!current) return;
     if (current.locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) return alert("구매확정 잠금된 주문이에요. 수정하려면 잠금해제 해줘.");
-    const next = { ...current, ...patch, updatedAt: nowString() };
+    let next = { ...current, ...patch, updatedAt: nowString() };
+    if (Object.prototype.hasOwnProperty.call(patch, "status") && patch.status === "입금확인" && current.status !== "입금확인") {
+      next = { ...next, deducted: true, paidAt: nowString() };
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "status") && patch.status === "정산후킵") {
+      next = { ...next, trackingNo: "" };
+    }
     try {
       await saveLiveOrderDb(next);
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
@@ -4005,16 +4096,9 @@ ${text}`;
     if (order.locked) return alert("구매확정 잠금된 주문이에요. 잠금해제 후 취소해줘.");
     const reason = window.prompt("취소 사유를 적어줘", order.cancelReason || "고객 취소");
     if (reason === null) return;
-    const ok = window.confirm(`주문을 취소하고 실제 재고/라방 남은수량을 복구할까요?\n\n구매자: ${order.buyer}\n금액: ${money(order.total)}`);
+    const ok = window.confirm(`주문을 취소하고 라방 남은수량을 복구할까요?\n\n구매자: ${order.buyer}\n금액: ${money(order.total)}`);
     if (!ok) return;
     try {
-      await createInventoryBackup("live_order_cancel_restore");
-      for (const item of order.items || []) {
-        const current = products.find((p) => String(p.id) === String(item.productId));
-        const nextStock = toInt(current?.stock) + toInt(item.qty);
-        const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", item.productId);
-        if (error) throw new Error(`재고 복구 실패: ${item.name}\n${error.message}`);
-      }
       const session = liveSessions.find((s) => String(s.id) === String(order.sessionId));
       if (session) {
         const nextSession = {
@@ -4029,31 +4113,84 @@ ${text}`;
       }
       await updateLiveOrder(order.id, { status: "취소", canceledAt: nowString(), cancelReason: reason });
       await writeAudit("live_order_cancel_restore", `${order.buyer} / ${order.id} / ${reason}`);
-      await getProducts();
     } catch (error) {
       alert(String(error.message || error));
-      getProducts();
     }
   }
 
   async function bulkMarkLiveOrdersPaid() {
-    const targets = liveFilteredOrders.filter((o) => !o.locked && !o.canceledAt && ["미입금", "주문접수", "일부입금"].includes(String(o.status || "")));
-    if (!targets.length) return alert("입금완료로 바꿀 주문이 없어요.");
-    if (!window.confirm(`현재 필터의 ${targets.length}건을 입금완료로 변경할까요?`)) return;
-    for (const o of targets) await updateLiveOrder(o.id, { status: "입금완료" });
+    const targets = liveFilteredOrders.filter((o) => !o.locked && !o.canceledAt && ["미입금"].includes(String(o.status || "")));
+    if (!targets.length) return alert("입금확인으로 바꿀 주문이 없어요.");
+    if (!window.confirm(`현재 필터의 ${targets.length}건을 입금확인으로 변경할까요?`)) return;
+    for (const o of targets) await updateLiveOrder(o.id, { status: "입금확인" });
   }
 
   function liveSalesSummary() {
     const rows = liveOrders.filter((o) => selectedLiveSession && String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt);
-    const paidRows = rows.filter((o) => ["입금완료", "포장중", "출고완료"].includes(String(o.status || "")));
+    const paidRows = rows.filter((o) => ["입금확인", "정산후킵", "송장입력", "출고완료"].includes(String(o.status || "")));
+    const soldItems = paidRows.flatMap((o) => o.items || []);
+    const cost = soldItems.reduce((s, it) => s + toInt(it.wholesale) * toInt(it.qty), 0);
+    const paySubtotal = paidRows.reduce((s, o) => s + toInt(o.paySubtotal), 0);
+    const allocated = (selectedLiveSession?.products || []).reduce((s, it) => s + toInt(it.liveQty), 0);
+    const remaining = (selectedLiveSession?.products || []).reduce((s, it) => s + toInt(it.remainingQty), 0);
     return {
       orderCount: rows.length,
-      total: rows.reduce((s, o) => s + toInt(o.total), 0),
-      paid: paidRows.reduce((s, o) => s + toInt(o.total), 0),
-      unpaid: rows.filter((o) => ["미입금", "주문접수", "일부입금"].includes(String(o.status || ""))).reduce((s, o) => s + toInt(o.total), 0),
-      cardFee: rows.reduce((s, o) => s + toInt(o.cardFee), 0),
-      shipping: rows.reduce((s, o) => s + toInt(o.shipping), 0),
+      buyerCount: new Set(rows.map((o) => makeMemberKey(o.buyer, o.phone) || o.buyer)).size,
+      paidCount: paidRows.length,
+      total: paidRows.reduce((s, o) => s + toInt(o.total), 0),
+      paySubtotal,
+      profit: paySubtotal - cost,
+      unpaid: rows.filter((o) => ["미입금"].includes(String(o.status || ""))).reduce((s, o) => s + toInt(o.total), 0),
+      cardFee: paidRows.reduce((s, o) => s + toInt(o.cardFee), 0),
+      shipping: paidRows.reduce((s, o) => s + toInt(o.shipping), 0),
+      allocated,
+      remaining,
+      soldQty: soldItems.reduce((s, it) => s + toInt(it.qty), 0),
+      keepDue: rows.filter(isLiveKeepDueSoon).length,
     };
+  }
+
+  async function bundleLiveOrdersFor(order) {
+    const key = makeMemberKey(order.buyer, order.phone);
+    if (!key) return alert("고객명과 전화번호 뒷 4자리가 있어야 같은 회원으로 묶을 수 있어요.");
+    const targets = liveOrders.filter((o) => !o.canceledAt && String(o.status || "") !== "출고완료" && makeMemberKey(o.buyer, o.phone) === key);
+    if (targets.length < 2) return alert("합칠 수 있는 미출고 주문이 2건 이상 없어요.");
+    const bundleId = order.bundleId || makeLiveId("bundle");
+    if (!window.confirm(`${order.buyer}님의 미출고 주문 ${targets.length}건을 합배송으로 묶을까요?`)) return;
+    for (const o of targets) await updateLiveOrder(o.id, { bundleId });
+    alert("주문을 합배송 묶음으로 연결했어요.");
+  }
+
+  function downloadLiveShippingExcel() {
+    const targets = liveFilteredOrders.filter((o) => !o.canceledAt && ["입금확인", "송장입력"].includes(String(o.status || "")));
+    if (!targets.length) return alert("택배접수로 내보낼 입금확인/송장입력 주문이 없어요.");
+    const seen = new Set();
+    const rows = [];
+    targets.forEach((o) => {
+      const key = o.bundleId || o.id;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const bundle = o.bundleId ? liveOrders.filter((x) => String(x.bundleId) === String(o.bundleId) && !x.canceledAt) : [o];
+      const first = bundle[0] || o;
+      const memo = bundle.map((bo) => `${bo.liveDate || "날짜없음"} ${bo.liveTitle || ""} / ${bo.items?.length || 0}종`).join("\n");
+      rows.push([
+        first.buyer || "",
+        first.postalCode || "",
+        first.baseAddress || first.address || "",
+        first.detailAddress || "",
+        first.phone || "",
+        first.boxWeight || "2",
+        first.boxVolume || "60",
+        "1",
+        first.household || "생활용품",
+        [first.deliveryMessage || "", first.memo || "", memo].filter(Boolean).join("\n"),
+      ]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 12 }, { wch: 10 }, { wch: 42 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 45 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "택배접수");
+    XLSX.writeFile(wb, `라방_택배접수_${selectedLiveSession?.date || ""}.xlsx`);
   }
 
   function openLiveInvoicePdf(order) {
@@ -4102,7 +4239,8 @@ ${text}`;
   function LiveOrderPage() {
     const summary = liveCartSummary();
     const sales = liveSalesSummary();
-    const statusOptions = ["주문접수", "미입금", "일부입금", "입금완료", "포장중", "출고완료", "킵중", "취소"];
+    const statusOptions = ["미입금", "입금확인", "정산후킵", "송장입력", "출고완료", "취소"];
+    const matchingOrders = sameLiveMemberOrders(liveOrderForm).filter((o) => String(o.sessionId) !== String(selectedLiveSession?.id) || String(o.status) === "정산후킵");
     return (
       <section className="livePage">
         <div className="panel liveTopPanel">
@@ -4110,7 +4248,7 @@ ${text}`;
           <div className="filterRow">
             <label>라방명</label><input value={liveNewSession.title} onChange={(e) => setLiveNewSession({ ...liveNewSession, title: e.target.value })} placeholder="예: 6/20 치이카와 라방" />
             <label>라방날짜</label><input type="date" value={liveNewSession.date} onChange={(e) => setLiveNewSession({ ...liveNewSession, date: e.target.value })} />
-            <label>킵기간</label><input className="tinyInput" value={liveNewSession.keepDays} onChange={(e) => setLiveNewSession({ ...liveNewSession, keepDays: e.target.value })} />일
+            <label>기본 킵기간</label><input className="tinyInput" value={liveNewSession.keepDays} onChange={(e) => setLiveNewSession({ ...liveNewSession, keepDays: e.target.value })} />일
             <label>배송비</label><input value={liveNewSession.shippingFee} onChange={(e) => setLiveNewSession({ ...liveNewSession, shippingFee: e.target.value })} />
             <label>카드%</label><input value={liveNewSession.cardFeeRate} onChange={(e) => setLiveNewSession({ ...liveNewSession, cardFeeRate: e.target.value })} />
             <button onClick={createLiveSession}>새 라방 생성</button>
@@ -4124,21 +4262,25 @@ ${text}`;
               <label>예금주</label><input value={selectedLiveSession.accountHolder || ""} onChange={(e) => updateLiveSession({ accountHolder: e.target.value })} />
             </div>
             <div className="liveSummaryCards">
-              <div><span>주문</span><b>{sales.orderCount.toLocaleString()}건</b></div>
-              <div><span>총매출</span><b>{money(sales.total)}</b></div>
-              <div><span>입금완료권</span><b>{money(sales.paid)}</b></div>
+              <div><span>주문자수</span><b>{sales.buyerCount.toLocaleString()}명</b></div>
+              <div><span>입금확인 주문</span><b>{sales.paidCount.toLocaleString()}건</b></div>
+              <div><span>확정매출</span><b>{money(sales.total)}</b></div>
+              <div><span>순수익</span><b>{money(sales.profit)}</b></div>
+              <div><span>판매수량</span><b>{sales.soldQty.toLocaleString()}개</b></div>
+              <div><span>라방재고</span><b>{sales.remaining}/{sales.allocated}</b></div>
               <div><span>미입금</span><b>{money(sales.unpaid)}</b></div>
-              <div><span>배송비</span><b>{money(sales.shipping)}</b></div>
-              <div><span>카드수수료</span><b>{money(sales.cardFee)}</b></div>
+              <div><span>킵 D-2/출고필요</span><b>{sales.keepDue.toLocaleString()}건</b></div>
             </div>
+            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button></div>
           </>}
         </div>
 
-        <div className="liveGrid">
+        <div className="liveGrid liveWorkflowGrid">
           <div className="panel liveProductPanel">
             <h2>1. 라방 상품 등록</h2>
+            <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
             <div className="filterRow"><label>상품검색</label><input value={liveProductSearch} onChange={(e) => setLiveProductSearch(e.target.value)} placeholder="상품명/캐릭터/카테고리" /></div>
-            <div className="tableWrap liveProductSourceTable"><table><thead><tr><th>상품명</th><th>재고</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
+            <div className="tableWrap liveProductSourceTable"><table><thead><tr><th>상품명</th><th>본재고</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
               {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.retail)}</td><td><button onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
               {liveFilteredProducts.length === 0 && <tr><td colSpan="4" className="empty">상품이 없어요.</td></tr>}
             </tbody></table></div>
@@ -4150,41 +4292,43 @@ ${text}`;
           </div>
 
           <div className="panel liveOrderPanel">
-            <h2>2. 구매자 주문 입력</h2>
+            <h2>2. 구매자 주문 생성</h2>
             <div className="filterRow">
-              <label>구매자</label><input value={liveOrderForm.buyer} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, buyer: e.target.value })} />
-              <label>연락처</label><input value={liveOrderForm.phone} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, phone: e.target.value })} />
+              <label>고객명</label><input value={liveOrderForm.buyer} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, buyer: e.target.value })} />
+              <label>전화번호</label><input value={liveOrderForm.phone} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, phone: e.target.value })} />
               <label>결제</label><select value={liveOrderForm.paymentMethod} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, paymentMethod: e.target.value })}><option>계좌이체</option><option>카드결제</option></select>
-              <label>상태</label><select value={liveOrderForm.status} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, status: e.target.value })}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select>
             </div>
-            <div className="filterRow"><label>주소</label><input className="wideInput" value={liveOrderForm.address} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, address: e.target.value })} /><label className="checkLine"><input type="checkbox" checked={liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, shippingApply: e.target.checked })} />배송비 적용</label></div>
+            {matchingOrders.length > 0 && <p className="statusLine dangerText">⚠ 같은 회원의 미출고/킵 주문 {matchingOrders.length}건이 있어요. 주문관리에서 합배송 묶기를 눌러 합칠 수 있어요.</p>}
+            <div className="filterRow"><label>우편번호</label><input value={liveOrderForm.postalCode} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, postalCode: e.target.value })} /><label>기본주소</label><input className="wideInput" value={liveOrderForm.baseAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, baseAddress: e.target.value, address: [e.target.value, liveOrderForm.detailAddress].filter(Boolean).join(" ") })} /></div>
+            <div className="filterRow"><label>상세주소</label><input className="wideInput" value={liveOrderForm.detailAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, detailAddress: e.target.value, address: [liveOrderForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /><label className="checkLine"><input type="checkbox" checked={liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, shippingApply: e.target.checked })} />배송비 적용</label></div>
+            <div className="filterRow"><label>박스무게</label><select value={liveOrderForm.boxWeight} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, boxWeight: e.target.value })}><option>2</option><option>5</option></select><label>박스부피</label><select value={liveOrderForm.boxVolume} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, boxVolume: e.target.value })}><option>60</option><option>80</option><option>100</option></select><label>내용품</label><input value={liveOrderForm.household} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, household: e.target.value })} /><label>배송메모</label><input className="wideInput" value={liveOrderForm.deliveryMessage} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, deliveryMessage: e.target.value })} /></div>
             <div className="tableWrap liveCartTable"><table><thead><tr><th>상품명</th><th>수량</th><th>금액</th><th>선결제</th><th>실결제</th><th>삭제</th></tr></thead><tbody>
               {liveCart.map((it, idx) => <tr key={`${it.liveItemId}-${idx}`}><td title={it.name}>{it.name}</td><td><input className="tinyInput" value={it.qty} onChange={(e) => updateLiveCartItem(idx, { qty: e.target.value })} /></td><td><input value={it.price} onChange={(e) => updateLiveCartItem(idx, { price: e.target.value })} /></td><td><select value={it.prepaid} onChange={(e) => updateLiveCartItem(idx, { prepaid: e.target.value })}><option>N</option><option>Y</option></select></td><td>{String(it.prepaid).toUpperCase() === "Y" ? "0원" : money(toInt(it.price) * toInt(it.qty))}</td><td><button className="deleteBtn" onClick={() => setLiveCart(liveCart.filter((_, i) => i !== idx))}>삭제</button></td></tr>)}
               {liveCart.length === 0 && <tr><td colSpan="6" className="empty">라방 상품에서 담기를 눌러줘.</td></tr>}
             </tbody></table></div>
             <p className="statusLine">상품합계 {money(summary.paySubtotal)} | 배송비 {money(summary.shipping)} | 카드수수료 {money(summary.cardFee)} ({liveOrderForm.paymentMethod === "카드결제" ? selectedLiveSession?.cardFeeRate || 0 : 0}%) | 최종 {money(summary.total)}</p>
-            <div className="filterRow"><label>송장번호</label><input value={liveOrderForm.trackingNo} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, trackingNo: e.target.value })} /><label>메모</label><input className="wideInput" value={liveOrderForm.memo} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, memo: e.target.value })} /><button onClick={saveLiveOrderAndDeduct}>판매차감/주문저장</button></div>
+            <div className="filterRow"><label>주문메모</label><input className="wideInput" value={liveOrderForm.memo} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, memo: e.target.value })} /><button onClick={saveLiveOrderAndDeduct}>미입금 주문저장</button></div>
           </div>
 
           <div className="panel liveManagePanel">
-            <h2>3. 주문/회원 관리</h2>
+            <h2>3. 주문관리 / 회원관리</h2>
             <div className="filterRow">
               <label>주문검색</label><input value={liveOrderSearch} onChange={(e) => setLiveOrderSearch(e.target.value)} placeholder="구매자/전화/송장/메모" />
               <label>상태</label><select value={liveStatusFilter} onChange={(e) => setLiveStatusFilter(e.target.value)}><option>전체</option>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select>
               <label>결제</label><select value={livePaymentFilter} onChange={(e) => setLivePaymentFilter(e.target.value)}><option>전체</option><option>계좌이체</option><option>카드결제</option></select>
-              <label className="checkLine"><input type="checkbox" checked={liveDueOnly} onChange={(e) => setLiveDueOnly(e.target.checked)} />킵/출고필요만</label>
-              <button type="button" onClick={bulkMarkLiveOrdersPaid}>필터목록 입금완료</button>
+              <label className="checkLine"><input type="checkbox" checked={liveDueOnly} onChange={(e) => setLiveDueOnly(e.target.checked)} />킵 D-2/출고필요만</label>
+              <button type="button" onClick={bulkMarkLiveOrdersPaid}>필터목록 입금확인</button>
             </div>
-            <div className="tableWrap liveOrdersTable"><table><thead><tr><th>구매자</th><th>금액</th><th>결제</th><th>상태</th><th>송장</th><th>메모</th><th>잠금</th><th>정산서</th><th>취소</th></tr></thead><tbody>
-              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : o.locked ? "lockedRow" : ""}><td>{o.buyer}</td><td>{money(o.total)}</td><td>{o.paymentMethod}</td><td><select disabled={o.locked} value={o.status} onChange={(e) => updateLiveOrder(o.id, { status: e.target.value })}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select></td><td><input disabled={o.locked} value={o.trackingNo || ""} onChange={(e) => updateLiveOrder(o.id, { trackingNo: e.target.value })} /></td><td><input disabled={o.locked} value={o.memo || ""} onChange={(e) => updateLiveOrder(o.id, { memo: e.target.value })} /></td><td><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button onClick={() => openLiveInvoicePdf(o)}>PDF</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>{o.canceledAt ? "취소됨" : "취소복구"}</button></td></tr>)}
+            <div className="tableWrap liveOrdersTable"><table><thead><tr><th>구매자</th><th>라방일</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th></tr></thead><tbody>
+              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={o.status} onChange={(e) => updateLiveOrder(o.id, { status: e.target.value })}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select></td><td>{liveOrderKeepDday(o)}</td><td><input disabled={o.locked || o.status === "정산후킵"} value={o.trackingNo || ""} onChange={(e) => updateLiveOrder(o.id, { trackingNo: e.target.value, status: e.target.value ? "송장입력" : o.status })} /></td><td><button onClick={() => bundleLiveOrdersFor(o)}>{o.bundleId ? "묶임" : "합치기"}</button></td><td><button onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>{o.canceledAt ? "취소됨" : "취소"}</button></td></tr>)}
               {liveFilteredOrders.length === 0 && <tr><td colSpan="9" className="empty">주문 기록이 없어요.</td></tr>}
             </tbody></table></div>
-            <h3>회원관리 / 포인트 / 킵</h3>
-            <div className="filterRow"><label>검색</label><input value={liveMemberSearch} onChange={(e) => setLiveMemberSearch(e.target.value)} /><label>이름</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>포인트</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /></div>
-            <div className="filterRow"><label>연락처</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>킵시작</label><input type="date" value={liveMemberForm.keepStart} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, keepStart: e.target.value })} /><label>킵기간</label><input className="tinyInput" value={liveMemberForm.keepDays} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, keepDays: e.target.value })} />일<button onClick={saveLiveMember}>회원 저장</button></div>
-            <div className="filterRow"><label>주소</label><input className="wideInput" value={liveMemberForm.address} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, address: e.target.value })} /><label>회원메모</label><input className="wideInput" value={liveMemberForm.memo} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, memo: e.target.value })} /></div>
-            <div className="tableWrap liveMembersTable"><table><thead><tr><th>이름</th><th>연락처</th><th>포인트</th><th>킵</th><th>메모</th><th>관리</th></tr></thead><tbody>
-              {liveFilteredMembers.map((m) => <tr key={m.id} className={String(keepDday(m)).includes("출고필요") ? "dangerRow" : ""}><td>{m.name}</td><td>{m.phone}</td><td>{toInt(m.points).toLocaleString()}</td><td>{keepDday(m)}</td><td title={m.memo}>{m.memo}</td><td><button onClick={() => loadMemberToOrder(m)}>불러오기</button><button onClick={() => loadMemberToOrder(m)}>수정</button><button className="deleteBtn" onClick={() => deleteLiveMember(m)}>삭제</button></td></tr>)}
+            <h3>통합 회원관리</h3>
+            <div className="filterRow"><label>검색</label><input value={liveMemberSearch} onChange={(e) => setLiveMemberSearch(e.target.value)} /><label>이름</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>연락처</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>포인트</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><button onClick={saveLiveMember}>회원 저장</button></div>
+            <div className="filterRow"><label>우편번호</label><input value={liveMemberForm.postalCode} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, postalCode: e.target.value })} /><label>기본주소</label><input className="wideInput" value={liveMemberForm.baseAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, baseAddress: e.target.value, address: [e.target.value, liveMemberForm.detailAddress].filter(Boolean).join(" ") })} /><label>상세주소</label><input className="wideInput" value={liveMemberForm.detailAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, detailAddress: e.target.value, address: [liveMemberForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /></div>
+            <div className="filterRow"><label>회원메모</label><input className="wideInput" value={liveMemberForm.memo} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, memo: e.target.value })} /></div>
+            <div className="tableWrap liveMembersTable"><table><thead><tr><th>이름</th><th>연락처</th><th>주소</th><th>포인트</th><th>메모</th><th>관리</th></tr></thead><tbody>
+              {liveFilteredMembers.map((m) => <tr key={m.id}><td>{m.name}</td><td>{m.phone}</td><td title={m.address}>{m.postalCode} {m.baseAddress} {m.detailAddress}</td><td>{toInt(m.points).toLocaleString()}</td><td title={m.memo}>{m.memo}</td><td><button onClick={() => loadMemberToOrder(m)}>불러오기</button><button onClick={() => loadMemberToOrder(m)}>수정</button><button className="deleteBtn" onClick={() => deleteLiveMember(m)}>삭제</button></td></tr>)}
               {liveFilteredMembers.length === 0 && <tr><td colSpan="6" className="empty">저장된 회원이 없어요.</td></tr>}
             </tbody></table></div>
           </div>
@@ -5322,7 +5466,6 @@ ${text}`;
       if (activeTab === "정산매입매출") return FinanceReportPage();
       if (activeTab === "재고관리") return InventoryPage();
       if (activeTab === "수동박스") return ComposePage();
-      if (activeTab === "랜덤스쿱") return ScoopPage();
       if (activeTab === "AI사입입고분석") return AiImportPage();
       if (activeTab === "주문관리") return OrdersPage();
       if (activeTab === "택배접수") return ShippingRegisterPage();
