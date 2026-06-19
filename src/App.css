@@ -3835,3 +3835,9 @@ button:active,
 body:has(.fixedCharacterModalOverlay) {
   overflow: hidden;
 }
+
+
+/* v90: 검색창 입력 중 포커스 풀림 방지 */
+#manual-product-search-input {
+  scroll-margin-top: 80px;
+}
