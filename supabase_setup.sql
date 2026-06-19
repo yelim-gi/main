@@ -221,6 +221,7 @@ alter table live_orders add column if not exists member_key text;
 alter table live_orders add column if not exists bundle_id text;
 alter table live_orders add column if not exists deducted boolean default false;
 alter table live_orders add column if not exists paid_at text;
-alter table live_orders add column if not exists keep_until text;
-alter table live_orders add column if not exists canceled_reason text;
-alter table live_sessions add column if not exists live_reserved_stock jsonb default '{}'::jsonb;
+
+-- v100 member points + invoice point deduction
+alter table live_members add column if not exists used_points integer default 0;
+alter table live_orders add column if not exists used_points integer default 0;
