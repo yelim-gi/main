@@ -3350,7 +3350,7 @@ ${text}`;
   }
 
   function saveScoopAiPreset() {
-    const name = scoopPresetName.trim() || `랜덤스쿱 조건 ${scoopSavedPresets.length + 1}`;
+    const name = scoopPresetName.trim() || `삭제된 조건 ${scoopSavedPresets.length + 1}`;
     const preset = {
       id: Date.now(),
       name,
@@ -3372,7 +3372,7 @@ ${text}`;
     setScoopSavedPresets(next);
     localStorage.setItem("scoop_ai_presets", JSON.stringify(next));
     setScoopPresetName("");
-    alert("랜덤스쿱 AI 조건을 저장했어요.");
+    alert("삭제된 조건을 저장했어요.");
   }
 
   function loadScoopAiPreset(id) {
@@ -3503,7 +3503,7 @@ ${text}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message:
-            "랜덤스쿱 추천안을 딱 1개만 만들어줘. 반드시 현재 그룹명, 그룹별 카테고리, 그룹별 파츠 개수를 먼저 지켜줘. " +
+            "삭제된 추천안을 딱 1개만 만들어줘. 반드시 현재 그룹명, 그룹별 카테고리, 그룹별 파츠 개수를 먼저 지켜줘. " +
             "선택된 캐릭터가 있으면 그 재고 안에서 우선 구성하고, 선택된 캐릭터가 없으면 전체 재고에서 무작위/균형 추천으로 판단해줘. " +
             "수정요청이 있으면 이전 추천안을 기준으로 수정해줘. 부족하면 같은 가격대 업그레이드나 소형 여러 개 추가로 맞춰줘. " +
             "실패하거나 조건을 못 맞추면 왜 실패했는지 이유와 부족한 조건을 먼저 말해줘. 실제 출고 가능한 추천안 1개와 조건 요약을 써줘.",
@@ -3962,6 +3962,39 @@ ${text}`;
     }
   }
 
+
+  async function deleteLiveSessionWithRestore() {
+    if (!selectedLiveSession) return alert("삭제할 라방을 선택해줘.");
+    const sessionOrders = liveOrders.filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt);
+    if (sessionOrders.some((o) => String(o.status) === "출고완료")) {
+      return alert("출고완료 주문이 있는 라방은 삭제할 수 없어요. 먼저 출고완료 주문을 확인해줘.");
+    }
+    const ok = window.confirm(`${selectedLiveSession.title} 라방을 삭제하고, 라방에 배정된 모든 수량을 본재고로 되돌릴까요?\n\n미입금/입금확인/킵/송장입력 주문은 취소 처리됩니다.`);
+    if (!ok) return;
+    try {
+      for (const li of selectedLiveSession.products || []) {
+        const current = products.find((p) => String(p.id) === String(li.productId));
+        const restoreQty = toInt(li.liveQty);
+        const { error } = await supabase.from("products").update({ stock: toInt(current?.stock) + restoreQty }).eq("id", li.productId);
+        if (error) throw error;
+      }
+      for (const o of sessionOrders) {
+        await saveLiveOrderDb({ ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소", updatedAt: nowString() });
+      }
+      const { error: delError } = await supabase.from("live_sessions").delete().eq("id", selectedLiveSession.id);
+      if (delError) throw delError;
+      await writeAudit("live_session_delete_restore", `${selectedLiveSession.title} / orders=${sessionOrders.length}`);
+      setLiveSessions((prev) => prev.filter((s) => String(s.id) !== String(selectedLiveSession.id)));
+      setLiveOrders((prev) => prev.map((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt ? { ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소" } : o));
+      setSelectedLiveSessionId(null);
+      await getProducts();
+      alert("라방을 삭제하고 본재고로 복구했어요.");
+    } catch (error) {
+      alert("라방 삭제/복구 실패: " + String(error.message || error));
+      getProducts();
+    }
+  }
+
   async function saveLiveMember() {
     const name = liveMemberForm.name.trim();
     if (!name) return alert("회원 이름을 입력해줘.");
@@ -4118,6 +4151,37 @@ ${text}`;
     }
   }
 
+
+  async function deleteLiveOrderWithRestore(order) {
+    if (!order) return;
+    if (order.locked) return alert("구매확정 잠금된 주문이에요. 잠금해제 후 삭제해줘.");
+    const ok = window.confirm(`주문을 완전히 삭제할까요?\n\n취소 전 주문이면 라방 남은수량을 먼저 복구한 뒤 삭제됩니다.\n구매자: ${order.buyer}`);
+    if (!ok) return;
+    try {
+      if (!order.canceledAt) {
+        const session = liveSessions.find((s) => String(s.id) === String(order.sessionId));
+        if (session) {
+          const nextSession = {
+            ...session,
+            products: (session.products || []).map((li) => {
+              const restored = (order.items || []).filter((it) => String(it.liveItemId) === String(li.id)).reduce((sum, it) => sum + toInt(it.qty), 0);
+              return restored ? { ...li, remainingQty: String(Math.min(toInt(li.liveQty), toInt(li.remainingQty) + restored)) } : li;
+            })
+          };
+          await saveLiveSessionDb(nextSession);
+          setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
+        }
+      }
+      const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
+      if (error) throw error;
+      setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
+      await writeAudit("live_order_delete_restore", `${order.buyer} / ${order.id}`);
+      alert("주문을 삭제했어요.");
+    } catch (error) {
+      alert("주문 삭제 실패: " + String(error.message || error));
+    }
+  }
+
   async function bulkMarkLiveOrdersPaid() {
     const targets = liveFilteredOrders.filter((o) => !o.locked && !o.canceledAt && ["미입금"].includes(String(o.status || "")));
     if (!targets.length) return alert("입금확인으로 바꿀 주문이 없어요.");
@@ -4271,7 +4335,7 @@ ${text}`;
               <div><span>미입금</span><b>{money(sales.unpaid)}</b></div>
               <div><span>킵 D-2/출고필요</span><b>{sales.keepDue.toLocaleString()}건</b></div>
             </div>
-            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button></div>
+            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제/재고복구</button></div>
           </>}
         </div>
 
@@ -4319,9 +4383,9 @@ ${text}`;
               <label className="checkLine"><input type="checkbox" checked={liveDueOnly} onChange={(e) => setLiveDueOnly(e.target.checked)} />킵 D-2/출고필요만</label>
               <button type="button" onClick={bulkMarkLiveOrdersPaid}>필터목록 입금확인</button>
             </div>
-            <div className="tableWrap liveOrdersTable"><table><thead><tr><th>구매자</th><th>라방일</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th></tr></thead><tbody>
-              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={o.status} onChange={(e) => updateLiveOrder(o.id, { status: e.target.value })}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select></td><td>{liveOrderKeepDday(o)}</td><td><input disabled={o.locked || o.status === "정산후킵"} value={o.trackingNo || ""} onChange={(e) => updateLiveOrder(o.id, { trackingNo: e.target.value, status: e.target.value ? "송장입력" : o.status })} /></td><td><button onClick={() => bundleLiveOrdersFor(o)}>{o.bundleId ? "묶임" : "합치기"}</button></td><td><button onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>{o.canceledAt ? "취소됨" : "취소"}</button></td></tr>)}
-              {liveFilteredOrders.length === 0 && <tr><td colSpan="9" className="empty">주문 기록이 없어요.</td></tr>}
+            <div className="tableWrap liveOrdersTable"><table><thead><tr><th>구매자</th><th>라방일</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th><th>삭제</th></tr></thead><tbody>
+              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={o.status} onChange={(e) => updateLiveOrder(o.id, { status: e.target.value })}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select></td><td>{liveOrderKeepDday(o)}</td><td><input disabled={o.locked || o.status === "정산후킵"} value={o.trackingNo || ""} onChange={(e) => updateLiveOrder(o.id, { trackingNo: e.target.value, status: e.target.value ? "송장입력" : o.status })} /></td><td><button onClick={() => bundleLiveOrdersFor(o)}>{o.bundleId ? "묶임" : "합치기"}</button></td><td><button onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>{o.canceledAt ? "취소됨" : "취소"}</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
+              {liveFilteredOrders.length === 0 && <tr><td colSpan="10" className="empty">주문 기록이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>통합 회원관리</h3>
             <div className="filterRow"><label>검색</label><input value={liveMemberSearch} onChange={(e) => setLiveMemberSearch(e.target.value)} /><label>이름</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>연락처</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>포인트</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><button onClick={saveLiveMember}>회원 저장</button></div>
@@ -4482,606 +4546,6 @@ ${text}`;
     alert("저장 그룹 삭제 완료!");
   }
 
-  function ScoopPage() {
-    const selected = scoopRecommendations[selectedScoopIndex];
-    return (
-      <>
-        <section className="panel scoopTop scoopSetupPanel">
-          <h2>랜덤스쿱 기본 설정</h2>
-          <div className="filterRow">
-            <label>그룹수</label><input value={scoopGroupCount} onChange={(e) => setScoopGroupCount(e.target.value)} />
-            <label>분배기준</label><select value={scoopMode} onChange={(e) => setScoopMode(e.target.value)}><option>상품 수 균등</option><option>소비자가 균등</option><option>도매가 균등</option><option>혼합 균형</option><option>카테고리 자동</option></select>
-            <label>가격대</label><select value={scoopPrice} onChange={(e) => setScoopPrice(e.target.value)}>{PRICE_RANGES.map((v) => <option key={v}>{v}</option>)}</select>
-            <label>소비자가상한</label><input value={scoopRetailLimit} onChange={(e) => setScoopRetailLimit(e.target.value)} />
-            <button onClick={analyzeScoopCategories}>카테고리 자동 분석</button>
-            <button onClick={generateScoopGroups}>그룹 나누기</button>
-            <button onClick={saveScoopGroups}>그룹 저장</button>
-            <button onClick={loadScoopGroups}>저장된 그룹 열기</button>
-            <button className="deleteBtn savedGroupDeleteBtn" onClick={deleteSavedScoopGroupByPicker}>저장 그룹 삭제</button>
-          </div>
-        </section>
-
-        <section className="scoopPlanningGrid">
-          <div className="panel scoopLeftPanel">
-            <h2>1. 카테고리 그룹 나누기</h2>
-            <p className="statusLine">먼저 카테고리 자동 분석 → 그룹 나누기 → 필요하면 그룹 수정/저장 순서로 설정해 주세요.</p>
-            <textarea className="analysisBox" value={scoopAnalysisText} readOnly />
-            <h3>카테고리 목록</h3>
-            <div className="tableWrap categoryStatsTable">
-              <table>
-                <thead><tr><th>선택</th><th>카테고리</th><th>총재고</th><th>평균 소비자가</th></tr></thead>
-                <tbody>
-                  {scoopCategoryStats.map((s) => <tr key={s.category}><td><input type="checkbox" checked={scoopSelectedCategories.includes(s.category)} onChange={() => toggleScoopCategory(s.category)} /></td><td>{s.category}</td><td>{s.stockSum}</td><td>{money(s.avgRetail)}</td></tr>)}
-                  {scoopCategoryStats.length === 0 && <tr><td colSpan="4" className="empty">카테고리 자동 분석을 눌러줘.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-            <div className="buttonRow">
-              <button onClick={makeManualCategoryGroup}>선택 카테고리 묶기</button>
-            </div>
-          </div>
-
-          <div className="panel scoopMiddlePanel">
-            <h2>2. 그룹 / 파츠 개수</h2>
-            <div className="tableWrap groupTable">
-              <table>
-                <thead><tr><th>그룹명</th><th>카테고리</th><th>총재고</th><th>평균소비자가</th><th>묶인 이유</th></tr></thead>
-                <tbody>
-                  {scoopGroups.map((g) => <tr key={g.id}><td>{g.name}</td><td>{(g.categories || []).join(", ")}</td><td>{g.stock}</td><td>{money(g.avgRetail)}</td><td>{g.reason}</td></tr>)}
-                  {scoopGroups.length === 0 && <tr><td colSpan="5" className="empty">그룹이 없어요.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-            <div className="buttonRow">
-              <button onClick={() => {
-                const id = window.prompt("수정할 그룹 번호를 입력해줘. 예: 1");
-                if (!id) return;
-                renameScoopGroup(toInt(id));
-              }}>그룹 이름 수정</button>
-            </div>
-            <h3>그룹별 파츠 개수</h3>
-            <div className="tableWrap partsTable">
-              <table>
-                <thead><tr><th>그룹명</th><th>파츠 개수</th></tr></thead>
-                <tbody>
-                  {scoopGroups.map((g) => <tr key={g.id}>
-                    <td>{g.name}</td>
-                    <td><input className="tinyInput" value={g.partQty} onChange={(e) => updateScoopPartQty(g.id, e.target.value)} /> 개 (추천 {g.partPercent || 0}%)</td>
-                  </tr>)}
-                  {scoopGroups.length === 0 && <tr><td colSpan="2" className="empty">그룹이 없어요.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel scoopAiDirectorPanel">
-          <h2>AI 랜덤스쿱 추천</h2>
-          <p className="statusLine">위에서 정한 그룹/파츠 개수를 기준으로 AI가 구성합니다. 캐릭터를 선택하지 않으면 전체 재고에서 무작위/균형으로 추천합니다.</p>
-          <div className="filterRow aiSimpleControls">
-            <label>수수료율</label><input value={feeRate} onChange={(e) => setFeeRate(e.target.value)} />
-            <label>목표마진율</label><input value={scoopTargetMargin} onChange={(e) => setScoopTargetMargin(e.target.value)} />
-          </div>
-
-          <div className="characterPickPanel">
-            <h3>캐릭터 선택</h3>
-            <MultiCheckFilter label="캐릭터1" options={char1Options} selected={scoopChar1Selected} setSelected={setScoopChar1Selected} />
-            <MultiCheckFilter label="캐릭터2" options={char2Options} selected={scoopChar2Selected} setSelected={setScoopChar2Selected} />
-          </div>
-
-          <div className="aiPresetGrid">
-            <div className="aiRequestBox">
-              <label>랜덤스쿱 요청사항</label>
-              <textarea
-                value={scoopAiRequest}
-                onChange={(e) => setScoopAiRequest(e.target.value)}
-                placeholder={"예: 산리오 위주, 문구류는 1개 이하, 고가템 1개 포함\n예: 6그룹으로 나누고 파츠는 7개, 마진율 20% 이상"}
-              />
-            </div>
-            <div className="aiRequestBox">
-              <label>AI 추천안 수정 요청</label>
-              <textarea
-                value={scoopAiRevision}
-                onChange={(e) => setScoopAiRevision(e.target.value)}
-                placeholder={"예: 2번 후보에서 문구류 하나 빼고 큰 상품으로 바꿔줘\n예: 시나모롤 비중을 더 높이고 도매가를 낮춰줘"}
-              />
-            </div>
-            <div className="aiPresetBox">
-              <label>저장된 조건</label>
-              <select onChange={(e) => e.target.value && loadScoopAiPreset(e.target.value)} value="">
-                <option value="">조건 선택</option>
-                {scoopSavedPresets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input value={scoopPresetName} onChange={(e) => setScoopPresetName(e.target.value)} placeholder="조건 이름 예: 산리오 6그룹 기본" />
-              <div className="buttonRow compactButtons">
-                <button type="button" onClick={saveScoopAiPreset}>현재 조건 저장</button>
-                <button type="button" className="deleteBtn" onClick={() => {
-                  const id = window.prompt("삭제할 조건 번호를 선택창에서 확인 후 입력하거나, 조건을 다시 저장해 새로 사용해줘.");
-                  if (id) deleteScoopAiPreset(id);
-                }}>조건 삭제</button>
-              </div>
-              <button type="button" className="primaryAiBtn fullBtn" onClick={askAiForScoopRecommendation} disabled={scoopAiLoading}>{scoopAiLoading ? "AI 추천 중..." : "AI가 스쿱 구성 짜기 / 수정하기"}</button>
-            </div>
-          </div>
-
-          {scoopAiMemo && <textarea className="aiMemoBox scoopAiMemoBox" value={scoopAiMemo} onChange={(e) => setScoopAiMemo(e.target.value)} />}
-          <div className="buttonRow">
-            <button type="button" onClick={() => exportGeminiAnswerToManualBox(scoopAiMemo)}>AI 답변 수동박스로 내보내기</button>
-            <button type="button" onClick={() => setScoopAiRevision("")}>수정요청 비우기</button>
-          </div>
-        </section>
-
-        
-
-      </>
-    );
-  }
-
-
-  async function restoreCanceledOrderFromTrash(orderId) {
-    alert("취소된 주문은 출고상태로 복구할 수 없어요. 필요하면 같은 상품으로 새 주문을 다시 만들어주세요.");
-  }
-
-  async function permanentlyDeleteOrder(orderId) {
-    const order = orders.find((o) => o.id === orderId);
-    if (!order) return alert("주문을 찾을 수 없어요.");
-    if (!order.deleted_at) return alert("취소보관함 주문만 영구삭제할 수 있어요.");
-
-    const ok = window.confirm(
-      `주문ID ${orderId}를 영구삭제할까요?\n\n` +
-      "영구삭제하면 주문 기록과 주문상품 기록이 완전히 삭제됩니다.\n" +
-      "재고는 이미 취소 시 복구되었으므로 여기서는 재고 변화가 없습니다."
-    );
-    if (!ok) return;
-
-    await supabase.from("order_items").delete().eq("order_id", orderId);
-    const { error } = await supabase.from("orders").delete().eq("id", orderId);
-    if (error) return alert("영구삭제 실패: " + error.message);
-
-    await writeAudit("order_permanent_delete", `order_id=${orderId}`);
-    alert("영구삭제 완료!");
-    getOrders();
-    getOrderItems();
-  }
-
-  function OrderTable({ title, rows }) {
-    return (
-      <div className="orderBox">
-        <h3>{title}</h3>
-        <div className="tableWrap">
-          <table><thead><tr><th>주문ID</th><th>주문일</th><th>주문자</th><th>재주문</th><th>상태</th><th>판매가</th><th>실수령액</th><th>순이익</th><th>취소사유</th></tr></thead><tbody>
-            {rows.map((o) => <tr key={o.id} onClick={(e) => { if (["INPUT","TEXTAREA","SELECT","BUTTON"].includes(e.target.tagName)) return; setSelectedOrderId(o.id); }} className={selectedOrderId === o.id ? "selectedRow" : ""}><td>{o.id}</td><td>{String(o.created_at || "").replace("T", " ").slice(0, 19)}</td><td>{o.customer}</td><td>{toInt(o.reorder) === 1 ? "Y" : ""}</td><td>{o.status}</td><td>{money(o.sale_price)}</td><td>{money(o.net_amount)}</td><td>{money(o.profit)}</td><td>{o.cancel_reason || ""}</td></tr>)}
-            {rows.length === 0 && <tr><td colSpan="9" className="empty">표시할 주문이 없어요.</td></tr>}
-          </tbody></table>
-        </div>
-      </div>
-    );
-  }
-
-
-  const selectedOrderItemsRows = useMemo(() => {
-    if (!selectedOrderId) return [];
-    return orderItems.filter((x) => String(x.order_id) === String(selectedOrderId));
-  }, [orderItems, selectedOrderId]);
-
-  const selectedOrderItemsWholesaleTotal = useMemo(() => {
-    return selectedOrderItemsRows.reduce((sum, x) => sum + toInt(x.wholesale || x.wholesale_price || x.cost || 0) * toInt(x.qty || 1), 0);
-  }, [selectedOrderItemsRows]);
-
-  const selectedOrderItemsRetailTotal = useMemo(() => {
-    return selectedOrderItemsRows.reduce((sum, x) => sum + toInt(x.retail || x.retail_price || x.consumer_price || 0) * toInt(x.qty || 1), 0);
-  }, [selectedOrderItemsRows]);
-
-  function openSelectedOrderItemsPanel() {
-    if (!selectedOrderId) return alert("주문을 선택해줘.");
-    setSelectedOrderItemsOpen(true);
-  }
-
-
-  const v50SelectedOrderItemsRows = useMemo(() => {
-    if (!selectedOrderId) return [];
-    return orderItems.filter((x) => String(x.order_id) === String(selectedOrderId));
-  }, [orderItems, selectedOrderId]);
-
-  const v50SelectedOrderWholesaleTotal = useMemo(() => {
-    return v50SelectedOrderItemsRows.reduce((sum, x) => sum + toInt(x.wholesale || x.wholesale_price || x.cost || 0) * toInt(x.qty || 1), 0);
-  }, [v50SelectedOrderItemsRows]);
-
-  const v50SelectedOrderRetailTotal = useMemo(() => {
-    return v50SelectedOrderItemsRows.reduce((sum, x) => sum + toInt(x.retail || x.retail_price || x.consumer_price || 0) * toInt(x.qty || 1), 0);
-  }, [v50SelectedOrderItemsRows]);
-
-
-  const v85SelectedOrder = useMemo(() => orders.find((o) => String(o.id) === String(selectedOrderId)), [orders, selectedOrderId]);
-  const v85SelectedCustomerInfo = v85SelectedOrder ? `${v85SelectedOrder.customer || v85SelectedOrder.customer_name || "-"} / ${v85SelectedOrder.status || "-"} / ${v85SelectedOrder.memo || ""}` : "주문을 클릭하면 고객정보와 상품목록이 여기에 표시됩니다.";
-  function OrdersPage() {
-    return (
-      <div className="ordersPageFit">
-        <section className="panel orderTopPanel stickyControlPanel">
-          <div className="filterRow">
-            <label>주문자명</label><input value={orderSearchCustomer} onChange={(e) => setOrderSearchCustomer(e.target.value)} />
-            <label>주문일</label><input value={orderSearchDate} onChange={(e) => setOrderSearchDate(e.target.value)} placeholder="YYYY-MM-DD" />
-            <label className="checkLine"><input checked={orderReorderOnly} onChange={(e) => setOrderReorderOnly(e.target.checked)} type="checkbox" /> 재구매자만</label>
-            <button onClick={getOrders}>검색</button>
-            <button onClick={() => { setOrderSearchCustomer(""); setOrderSearchDate(""); setOrderReorderOnly(false); setSelectedOrderId(null); }}>초기화</button>
-            <button onClick={shipSelectedOrder}>출고확정</button>
-            <button className="deleteBtn" onClick={cancelSelectedOrder}>주문취소</button>
-            <button onClick={() => selectedOrderId ? copyOrderToManualComposition(selectedOrderId) : alert("복사할 주문을 선택해줘.")}>구성복사 수동박스</button>
-            <button onClick={downloadOrdersExcel}>주문 엑셀</button>
-            <button onClick={downloadCustomerOrderExcel}>고객용 엑셀</button>
-          </div>
-          <p className="statusLine">선택된 주문ID: {selectedOrderId || "-"}</p>
-        </section>
-        <section className="ordersGrid fixedOrdersGrid"><OrderTable title="주문접수 / 재고임시차감" rows={pendingOrders} /><OrderTable title="출고확정 / 발송완료" rows={shippedOrders} /></section>
-        <section className="panel orderDetailPanel v51OrderDetailPanel">
-          <div className="v51OrderDetailHeader">
-            <h2>선택 주문 상품목록</h2><p className="statusLine">{v85SelectedCustomerInfo}</p>
-            <div className="v51OrderTotals">
-              <b>주문ID:</b> {selectedOrderId || "-"}　
-              <b>총 도매가합:</b> {money(selectedOrderItemsWholesaleTotal || v50SelectedOrderWholesaleTotal || 0)}　
-              <b>총 소비자가합:</b> {money(selectedOrderItemsRetailTotal || v50SelectedOrderRetailTotal || 0)}
-            </div>
-          </div>
-          <div className="tableWrap v51OrderItemsTableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>번호</th>
-                  <th>상품ID</th>
-                  <th>상품명</th>
-                  <th>캐릭터1</th>
-                  <th>캐릭터2</th>
-                  <th>카테고리</th>
-                  <th>수량</th>
-                  <th>도매가</th>
-                  <th>소비자가</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(selectedOrderItemsRows.length ? selectedOrderItemsRows : v50SelectedOrderItemsRows).map((x, i) => (
-                  <tr key={x.id || i}>
-                    <td>{i + 1}</td>
-                    <td>{x.product_id || x.id}</td>
-                    <td>{x.product_name || x.name || x.item_name || "-"}</td>
-                    <td>{x.char1 || products.find((p) => String(p.id) === String(x.product_id))?.char1 || "-"}</td>
-                    <td>{x.char2 || products.find((p) => String(p.id) === String(x.product_id))?.char2 || "-"}</td>
-                    <td>{x.category || products.find((p) => String(p.id) === String(x.product_id))?.category || "-"}</td>
-                    <td>{x.qty || 1}</td>
-                    <td>{money(x.wholesale || x.wholesale_price || x.cost || 0)}</td>
-                    <td>{money(x.retail || x.retail_price || x.consumer_price || 0)}</td>
-                  </tr>
-                ))}
-                {!selectedOrderId && <tr><td colSpan="9" className="empty">주문접수 또는 출고완료 표에서 주문을 클릭하면 상품목록이 여기에 표시됩니다.</td></tr>}
-                {selectedOrderId && (selectedOrderItemsRows.length ? selectedOrderItemsRows : v50SelectedOrderItemsRows).length === 0 && <tr><td colSpan="9" className="empty">이 주문의 상품목록이 없어요.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-    );
-  }
-
-
-  async function copyOrderToManualComposition(orderId) {
-    const oldOrder = orders.find((o) => o.id === orderId);
-    if (!oldOrder) return alert("주문을 찾을 수 없어요.");
-
-    const rows = orderItems.filter((x) => x.order_id === orderId);
-    if (rows.length === 0) return alert("복사할 주문상품이 없어요.");
-
-    const copiedItems = [];
-    const missing = [];
-    const shortage = [];
-
-    for (const x of rows) {
-      const p = products.find((prod) => String(prod.id) === String(x.product_id));
-      if (!p) {
-        missing.push(`${x.name || "상품명 없음"} / 상품ID ${x.product_id}`);
-        continue;
-      }
-
-      const qty = toInt(x.qty || 1);
-      if (toInt(p.stock) < qty) {
-        shortage.push(`${p.name} | 필요 ${qty}개 / 현재 ${p.stock}개`);
-      }
-
-      for (let i = 0; i < qty; i++) {
-        copiedItems.push(p);
-      }
-    }
-
-    if (missing.length > 0) {
-      alert(
-        "현재 재고 목록에서 찾을 수 없는 상품이 있어요.\n" +
-        "삭제된 상품은 수동박스 조합으로 복사할 수 없어요.\n\n" +
-        missing.join("\n")
-      );
-      return;
-    }
-
-    if (shortage.length > 0) {
-      alert(
-        "복사하려는 구성 중 현재 재고가 부족한 상품이 있어요.\n" +
-        "수동박스로 복사하지 않았습니다.\n\n" +
-        shortage.join("\n")
-      );
-      return;
-    }
-
-    const ok = window.confirm(
-      `주문ID ${orderId}의 구성을 수동박스 현재 조합 리스트로 복사할까요?\n\n` +
-      `상품 수: ${copiedItems.length}개\n` +
-      `주문자명: ${oldOrder.customer || ""}\n` +
-      `판매가: ${money(oldOrder.sale_price)}\n\n` +
-      "복사 후 수동박스 화면에서 상품 목록을 확인하고 박스출고를 눌러야 새 주문이 생성됩니다."
-    );
-    if (!ok) return;
-
-    setComposeItems(copiedItems);
-    setCustomer(oldOrder.customer || "");
-    setReorder(toInt(oldOrder.reorder) === 1);
-    setMemo(`주문ID ${orderId} 구성 복사`);
-    setSalePrice(String(toInt(oldOrder.sale_price || salePrice || defaultSale)));
-    setFeeRate(String(oldOrder.fee_rate ?? feeRate ?? defaultFee));
-
-    setActiveTab("수동박스");
-    alert("구성 복사 완료!\n수동박스의 현재 조합 리스트에서 확인한 뒤 박스출고를 눌러주세요.");
-  }
-
-
-  function parsePastedTsv(text) {
-    const rows = [];
-    let row = [];
-    let cell = "";
-    let inQuotes = false;
-
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      const next = text[i + 1];
-
-      if (ch === '"') {
-        if (inQuotes && next === '"') {
-          cell += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (ch === "\t" && !inQuotes) {
-        row.push(cell);
-        cell = "";
-      } else if ((ch === "\n" || ch === "\r") && !inQuotes) {
-        if (ch === "\r" && next === "\n") i++;
-        row.push(cell);
-        if (row.some((x) => String(x).trim() !== "")) rows.push(row);
-        row = [];
-        cell = "";
-      } else {
-        cell += ch;
-      }
-    }
-
-    row.push(cell);
-    if (row.some((x) => String(x).trim() !== "")) rows.push(row);
-    return rows;
-  }
-
-  function normalizePhone(v) {
-    return String(v || "").trim();
-  }
-
-  function normalizeZip(v) {
-    return String(v || "").replace(/[^0-9]/g, "").trim();
-  }
-
-  function convertShippingPaste() {
-    const parsed = parsePastedTsv(shippingPasteText);
-    if (parsed.length === 0) return alert("붙여넣은 주문 데이터가 없어요.");
-
-    const converted = parsed.map((cols, index) => {
-      const clean = cols.map((x) => String(x ?? "").trim());
-      return {
-        id: Date.now() + index,
-        selected: false,
-        receiverName: clean[0] || "",
-        zipcode: normalizeZip(clean[9] || ""),
-        baseAddress: clean[6] || "",
-        detailAddress: clean[7] || "",
-        receiverPhone: normalizePhone(clean[5] || clean[8] || ""),
-        boxWeight: "2",
-        boxVolume: "60",
-        boxCount: "1",
-        content: "생활용품",
-        deliveryMessage: clean.slice(10).join("\n").trim(),
-      };
-    }).filter((x) => x.receiverName || x.zipcode || x.baseAddress || x.receiverPhone);
-
-    if (converted.length === 0) return alert("변환할 수 있는 주문 데이터가 없어요. 복사한 데이터 순서를 확인해줘.");
-
-    setShippingRows(converted);
-    alert(`${converted.length}건을 택배접수 양식으로 변환했어요.`);
-  }
-
-  function updateShippingRow(id, key, value) {
-    setShippingRows((prev) => prev.map((row) => row.id === id ? { ...row, [key]: value } : row));
-  }
-
-  function toggleShippingRow(id) {
-    setShippingRows((prev) => prev.map((row) => row.id === id ? { ...row, selected: !row.selected } : row));
-  }
-
-  function deleteSelectedShippingRows() {
-    const count = shippingRows.filter((x) => x.selected).length;
-    if (count === 0) return alert("삭제할 행을 체크해줘.");
-    if (!window.confirm(`${count}건을 삭제할까요?`)) return;
-    setShippingRows((prev) => prev.filter((x) => !x.selected));
-  }
-
-  function clearShippingRows() {
-    if (shippingRows.length === 0) return;
-    if (!window.confirm("택배접수 목록을 모두 비울까요?")) return;
-    setShippingRows([]);
-  }
-
-  function downloadShippingExcel() {
-    if (shippingRows.length === 0) return alert("다운로드할 택배접수 목록이 없어요.");
-
-    const rows = shippingRows.map((row) => [
-      row.receiverName,
-      row.zipcode,
-      row.baseAddress,
-      row.detailAddress,
-      row.receiverPhone,
-      row.boxWeight,
-      row.boxVolume,
-      row.boxCount,
-      "생활용품",
-      row.deliveryMessage,
-    ]);
-
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-
-    ws["!cols"] = [
-      { wch: 12 }, { wch: 10 }, { wch: 42 }, { wch: 24 }, { wch: 16 },
-      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 45 },
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "택배접수");
-    XLSX.writeFile(wb, "택배접수.xlsx");
-
-    const clearOk = window.confirm("엑셀 다운로드가 완료됐어요.\n\n택배접수 목록도 삭제할까요?");
-    if (clearOk) {
-      setShippingRows([]);
-      setShippingPasteText("");
-    }
-  }
-
-  function ShippingRegisterPage() {
-    return (
-      <>
-        <section className="panel shippingRegisterPage">
-          <h2>택배접수</h2>
-          <p className="statusLine">
-            네이버 주문 데이터를 그대로 복사해서 붙여넣으면 우체국 접수 양식으로 자동 정리됩니다.
-            내용품은 항상 생활용품으로 들어가고, 배송메시지는 아래 표에서 직접 수정할 수 있어요.
-          </p>
-
-          <textarea
-            className="shippingPasteBox"
-            value={shippingPasteText}
-            onChange={(e) => setShippingPasteText(e.target.value)}
-            placeholder={"수취인명\\t상품명\\t옵션상품\\t좋아하는캐릭터/영상촬영\\t수량\\t수취인연락처\\t기본주소\\t상세주소\\t구매자연락처\\t우편번호\\t배송메시지\\n여기에 주문 데이터를 그대로 붙여넣어줘."}
-          />
-
-          <div className="buttonRow">
-            <button type="button" onClick={convertShippingPaste}>자동 변환</button>
-            <button type="button" onClick={downloadShippingExcel}>엑셀 다운로드</button>
-            <button type="button" onClick={deleteSelectedShippingRows}>선택 삭제</button>
-            <button type="button" className="deleteBtn" onClick={clearShippingRows}>전체 삭제</button>
-          </div>
-
-          <p className="statusLine">변환된 택배접수 건수: {shippingRows.length.toLocaleString()}건</p>
-        </section>
-
-        <section className="panel shippingTablePanel">
-          <h3>택배접수 목록</h3>
-          <div className="tableWrap shippingTableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>선택</th>
-                  <th>수취인명</th>
-                  <th>우편번호</th>
-                  <th>기본주소</th>
-                  <th>상세주소</th>
-                  <th>수취인연락처</th>
-                  <th>박스무게</th>
-                  <th>박스부피</th>
-                  <th>박스수량</th>
-                  <th>내용품</th>
-                  <th>배송메시지</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shippingRows.map((row) => (
-                  <tr key={row.id}>
-                    <td><input type="checkbox" checked={row.selected} onChange={() => toggleShippingRow(row.id)} /></td>
-                    <td><input value={row.receiverName} onChange={(e) => updateShippingRow(row.id, "receiverName", e.target.value)} /></td>
-                    <td><input value={row.zipcode} onChange={(e) => updateShippingRow(row.id, "zipcode", e.target.value)} /></td>
-                    <td><input className="shippingAddressInput" value={row.baseAddress} onChange={(e) => updateShippingRow(row.id, "baseAddress", e.target.value)} /></td>
-                    <td><input className="shippingDetailInput" value={row.detailAddress} onChange={(e) => updateShippingRow(row.id, "detailAddress", e.target.value)} /></td>
-                    <td><input value={row.receiverPhone} onChange={(e) => updateShippingRow(row.id, "receiverPhone", e.target.value)} /></td>
-                    <td>
-                      <select value={row.boxWeight} onChange={(e) => updateShippingRow(row.id, "boxWeight", e.target.value)}>
-                        <option value="2">2</option>
-                        <option value="5">5</option>
-                        <option value="10">10</option>
-                      </select>
-                    </td>
-                    <td>
-                      <select value={row.boxVolume} onChange={(e) => updateShippingRow(row.id, "boxVolume", e.target.value)}>
-                        <option value="60">60</option>
-                        <option value="80">80</option>
-                        <option value="100">100</option>
-                      </select>
-                    </td>
-                    <td><input className="boxCountInput" value={row.boxCount} onChange={(e) => updateShippingRow(row.id, "boxCount", e.target.value)} /></td>
-                    <td>생활용품</td>
-                    <td>
-                      <textarea
-                        className="shippingMessageInput"
-                        value={row.deliveryMessage}
-                        onChange={(e) => updateShippingRow(row.id, "deliveryMessage", e.target.value)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-                {shippingRows.length === 0 && (
-                  <tr><td colSpan="11" className="empty">붙여넣기 후 자동 변환을 누르면 목록이 표시됩니다.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </>
-    );
-  }
-
-  function TrashPage() {
-    return (
-      <section className="panel trashPage">
-        <h2>취소보관함</h2>
-        <p className="statusLine">취소된 주문은 30일 보관용으로 표시됩니다. 재고는 취소 시 이미 복구됩니다.</p>
-        <div className="tableWrap trashTable">
-          <table>
-            <thead>
-              <tr>
-                <th>주문ID</th><th>주문자</th><th>취소사유</th><th>메모</th><th>취소일</th><th>보관 남은일</th><th>판매가</th><th>순이익</th><th>수동박스복사</th><th>영구삭제</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trashOrders.map((o) => (
-                <tr key={o.id}>
-                  <td>{o.id}</td>
-                  <td>{o.customer}</td>
-                  <td>{o.cancel_reason || "-"}</td>
-                  <td>{o.cancel_detail || ""}</td>
-                  <td>{o.deleted_at || o.canceled_at || "-"}</td>
-                  <td>{daysLeftForTrash(o)}일</td>
-                  <td>{money(o.sale_price)}</td>
-                  <td>{money(o.profit)}</td>
-                  <td><button onClick={() => copyOrderToManualComposition(o.id)}>수동박스로 복사</button></td>
-                  <td><button className="deleteBtn" onClick={() => permanentlyDeleteOrder(o.id)}>영구삭제</button></td>
-                </tr>
-              ))}
-              {trashOrders.length === 0 && <tr><td colSpan="10" className="empty">취소보관함이 비어 있어요.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
-  }
-
   function SettingsPage() {
     return (
       <section className="manualPage">
@@ -5109,14 +4573,6 @@ ${text}`;
             <p>AI 수동박스 추천에서는 판매가, 목표마진율, 추가 소비자가, 구성느낌, 캐릭터 선택값이 자동으로 AI에게 전달됩니다.</p>
             <p>캐릭터를 선택하지 않으면 전체 재고에서 무작위/균형 추천으로 판단합니다.</p>
             <p>AI 추천안이 마음에 안 들면 수정 요청칸에 “이 상품 빼고 다른 걸로”, “마진율 맞춰줘”처럼 적고 다시 추천하면 됩니다.</p>
-          </div>
-
-          <div className="manualCard">
-            <h3>4. 랜덤스쿱</h3>
-            <p>먼저 카테고리 자동 분석으로 그룹을 만들고, 그룹별 파츠 개수를 입력합니다.</p>
-            <p>그다음 AI 랜덤스쿱 추천에서 판매가, 수수료율, 목표마진율, 캐릭터, 요청사항을 넣으면 그 조건으로 추천안을 만듭니다.</p>
-            <p>캐릭터를 선택하지 않으면 전체 재고 기준으로 무작위/균형 추천합니다.</p>
-            <p>AI가 만든 답변은 수동박스로 내보낸 뒤 최종 수정하고 박스출고할 수 있습니다.</p>
           </div>
 
           <div className="manualCard">
@@ -5223,7 +4679,7 @@ ${text}`;
     if (!rec) return alert("수동박스로 보낼 추천안을 선택해줘.");
     setComposeItems(rec.items || []);
     setActiveTab("수동박스");
-    alert("랜덤스쿱 추천안을 수동박스 현재 조합 리스트로 옮겼어요. 수동박스에서 수정 후 박스출고해주세요.");
+    alert("삭제된 추천안을 수동박스 현재 조합 리스트로 옮겼어요. 수동박스에서 수정 후 박스출고해주세요.");
   }
 
 
