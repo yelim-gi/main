@@ -4107,181 +4107,83 @@ body:has(.fixedCharacterModalOverlay) {
   padding: 1px 5px !important;
 }
 
-/* v111 final: 검색 결과 표 행 높이 강제 고정 */
+/* v112: 상품검색 표 깨짐 복구 - table을 grid/block로 바꾸지 않음 */
 .productResultFixedRows {
   display: block !important;
   height: 420px !important;
   min-height: 420px !important;
   max-height: 420px !important;
-  overflow: auto !important;
-  background: #fffefa !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  background: #fff !important;
+  align-content: unset !important;
 }
-.productResultFixedRows table.productTable {
-  display: block !important;
+.productResultFixedRows table.productTable,
+.productResultFixedRows .productTable {
+  display: table !important;
   width: 100% !important;
+  min-width: 0 !important;
   height: auto !important;
   min-height: 0 !important;
+  border-collapse: collapse !important;
   table-layout: fixed !important;
 }
-.productResultFixedRows thead,
+.productResultFixedRows thead {
+  display: table-header-group !important;
+  width: auto !important;
+  height: auto !important;
+}
 .productResultFixedRows tbody {
-  display: block !important;
-  width: 100% !important;
+  display: table-row-group !important;
+  width: auto !important;
   height: auto !important;
   min-height: 0 !important;
 }
 .productResultFixedRows tr {
-  display: grid !important;
-  grid-template-columns: 60px minmax(260px, 2.4fr) 140px 140px 140px 110px 110px 110px 120px !important;
-  width: 100% !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  max-height: 32px !important;
-}
-.productResultFixedRows th,
-.productResultFixedRows td {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  max-height: 32px !important;
-  padding: 3px 6px !important;
-  overflow: hidden !important;
-  white-space: nowrap !important;
-  text-overflow: ellipsis !important;
-  line-height: 1.2 !important;
-}
-.productResultFixedRows td:nth-child(2),
-.productResultFixedRows th:nth-child(2) {
-  justify-content: center !important;
-  white-space: nowrap !important;
-}
-.productResultFixedRows .empty {
-  grid-column: 1 / -1 !important;
-  width: 100% !important;
-}
-
-/* v111 final: 라방 상품 등록 큰창 버튼 확실히 보이게 */
-.liveProductHeaderRow {
-  display: flex !important;
-  justify-content: space-between !important;
-  align-items: center !important;
-  gap: 8px !important;
-  margin-bottom: 6px !important;
-}
-.liveOpenBigProductBtn,
-.liveOpenBigProductBtnTop {
-  background: #ffcc00 !important;
-  border: 2px solid #b88f00 !important;
-  border-radius: 999px !important;
-  min-width: 170px !important;
-  height: 30px !important;
-  font-weight: 950 !important;
-  color: #382a00 !important;
-}
-.liveProductBigOverlay {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 2147483647 !important;
-  background: rgba(0,0,0,.18) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-.liveProductBigModal {
-  width: min(1500px, calc(100vw - 24px)) !important;
-  height: min(920px, calc(100vh - 24px)) !important;
-  max-width: calc(100vw - 24px) !important;
-  max-height: calc(100vh - 24px) !important;
-  background: #fff9e6 !important;
-  border: 2px solid #b88f00 !important;
-  border-radius: 18px !important;
-  box-shadow: 0 10px 30px rgba(0,0,0,.35) !important;
-  padding: 14px !important;
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 8px !important;
-}
-.liveProductBigTable {
-  height: 610px !important;
-  max-height: 610px !important;
-  overflow: auto !important;
-}
-.liveProductSourceTable table,
-.liveProductBigTable table,
-.liveProductBigSelected table {
-  height: auto !important;
-  min-height: 0 !important;
-}
-.liveProductSourceTable tr,
-.liveProductSourceTable th,
-.liveProductSourceTable td,
-.liveProductBigTable tr,
-.liveProductBigTable th,
-.liveProductBigTable td,
-.liveProductBigSelected tr,
-.liveProductBigSelected th,
-.liveProductBigSelected td {
+  display: table-row !important;
+  width: auto !important;
   height: 31px !important;
   min-height: 31px !important;
   max-height: 31px !important;
-  padding-top: 3px !important;
-  padding-bottom: 3px !important;
+}
+.productResultFixedRows th,
+.productResultFixedRows td {
+  display: table-cell !important;
+  height: 31px !important;
+  min-height: 31px !important;
+  max-height: 31px !important;
+  padding: 3px 6px !important;
   line-height: 1.2 !important;
   vertical-align: middle !important;
-}
-
-/* v111 final: 라방 주문관리 버튼/PDF가 잘리지 않게 */
-.liveOrdersTable {
-  overflow-x: auto !important;
-  overflow-y: auto !important;
-}
-.liveOrdersTable table {
-  min-width: 1680px !important;
-  width: 1680px !important;
-  table-layout: fixed !important;
-}
-.liveOrdersTable th,
-.liveOrdersTable td {
-  height: auto !important;
-  min-height: 34px !important;
-  max-height: none !important;
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-  padding: 4px !important;
-}
-.liveOrdersTable th:nth-child(5),
-.liveOrdersTable td:nth-child(5) { width: 210px !important; }
-.liveOrdersTable th:nth-child(7),
-.liveOrdersTable td:nth-child(7) { width: 140px !important; }
-.liveOrdersTable th:nth-child(9),
-.liveOrdersTable td:nth-child(9) { width: 250px !important; }
-.liveOrdersTable th:nth-child(10),
-.liveOrdersTable td:nth-child(10),
-.liveOrdersTable th:nth-child(11),
-.liveOrdersTable td:nth-child(11),
-.liveOrdersTable th:nth-child(12),
-.liveOrdersTable td:nth-child(12) { width: 90px !important; }
-.liveStatusCell,
-.liveInvoiceCell {
-  display: flex !important;
-  flex-wrap: wrap !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 3px !important;
-}
-.liveStatusCell select { width: 95px !important; min-width: 95px !important; }
-.liveStatusCell button,
-.liveInvoiceCell button,
-.liveCancelInlineBtn,
-.invoiceBtn {
-  height: 23px !important;
-  min-width: 58px !important;
-  padding: 2px 6px !important;
-  font-size: 10px !important;
+  text-align: center !important;
   white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
-.invoiceBtn { min-width: 82px !important; }
-.liveCancelInlineBtn { background: #ffdddd !important; border-color: #cc7777 !important; }
+.productResultFixedRows th:nth-child(1), .productResultFixedRows td:nth-child(1) { width: 4.5% !important; }
+.productResultFixedRows th:nth-child(2), .productResultFixedRows td:nth-child(2) { width: 32% !important; }
+.productResultFixedRows th:nth-child(3), .productResultFixedRows td:nth-child(3),
+.productResultFixedRows th:nth-child(4), .productResultFixedRows td:nth-child(4),
+.productResultFixedRows th:nth-child(5), .productResultFixedRows td:nth-child(5) { width: 10% !important; }
+.productResultFixedRows th:nth-child(6), .productResultFixedRows td:nth-child(6),
+.productResultFixedRows th:nth-child(7), .productResultFixedRows td:nth-child(7),
+.productResultFixedRows th:nth-child(8), .productResultFixedRows td:nth-child(8) { width: 8% !important; }
+.productResultFixedRows th:nth-child(9), .productResultFixedRows td:nth-child(9) { width: 7.5% !important; }
+.productResultFixedRows td:nth-child(2),
+.productResultFixedRows th:nth-child(2),
+.productResultFixedRows .productNameCell {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.productResultFixedRows .empty {
+  display: table-cell !important;
+  width: auto !important;
+}
+/* 수동박스/재고 결과 영역이 행 수가 적다고 세로로 늘어나지 않도록 고정 */
+.composeConditionResultArea .productResultFixedRows,
+.manualProductListPanel .productResultFixedRows,
+.panel .productResultFixedRows {
+  align-items: initial !important;
+  justify-content: initial !important;
+}
