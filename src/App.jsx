@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 import { createPortal } from "react-dom";
 
@@ -331,6 +331,7 @@ export default function App() {
 
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [char1Selected, setChar1Selected] = useState([]);
   const [char2Selected, setChar2Selected] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState("전체");
@@ -430,6 +431,8 @@ export default function App() {
   const [liveOrders, setLiveOrders] = useState([]);
   const [selectedLiveSessionId, setSelectedLiveSessionId] = useState(null);
   const [liveProductSearch, setLiveProductSearch] = useState("");
+  const [liveProductModalOpen, setLiveProductModalOpen] = useState(false);
+  const deferredLiveProductSearch = useDeferredValue(liveProductSearch);
   const [liveStatusFilter, setLiveStatusFilter] = useState("전체");
   const [livePaymentFilter, setLivePaymentFilter] = useState("전체");
   const [liveOrderSearch, setLiveOrderSearch] = useState("");
@@ -701,7 +704,7 @@ export default function App() {
   const categoryOptions = useMemo(() => ["전체", ...Array.from(new Set(products.map((p) => p.category).filter(Boolean))).sort()], [products]);
 
   const filteredProducts = useMemo(() => {
-    const kw = search.trim().toLowerCase();
+    const kw = deferredSearch.trim().toLowerCase();
     const rows = products.filter((p) => {
       const keyword =
         !kw ||
@@ -727,7 +730,7 @@ export default function App() {
     if (productSort === "재고 적은순") sorted.sort((a, b) => toInt(a.stock) - toInt(b.stock));
     if (productSort === "상품명순") sorted.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
     return sorted;
-  }, [products, search, char1Selected, char2Selected, categoryFilter, priceFilter, hiddenOnly, excludeLowStock, productSort]);
+  }, [products, deferredSearch, char1Selected, char2Selected, categoryFilter, priceFilter, hiddenOnly, excludeLowStock, productSort]);
 
   const totalStock = products.reduce((s, p) => s + toInt(p.stock), 0);
   const totalWholesale = products.reduce((s, p) => s + toInt(p.stock) * toInt(p.wholesale), 0);
@@ -3768,18 +3771,19 @@ ${text}`;
   const selectedLiveProducts = selectedLiveSession?.products || [];
 
   const liveFilteredProducts = useMemo(() => {
-    const kw = liveProductSearch.trim().toLowerCase();
+    const kw = deferredLiveProductSearch.trim().toLowerCase();
     return products.filter((p) => {
       if (toInt(p.stock) <= 0) return false;
       if (!kw) return true;
       return String(p.name || "").toLowerCase().includes(kw) || String(p.char1 || "").toLowerCase().includes(kw) || String(p.char2 || "").toLowerCase().includes(kw) || String(p.category || "").toLowerCase().includes(kw);
     }).slice(0, 400);
-  }, [products, liveProductSearch]);
+  }, [products, deferredLiveProductSearch]);
 
   const liveFilteredOrders = useMemo(() => {
     const kw = liveOrderSearch.trim().toLowerCase();
     return liveOrders
       .filter((o) => !selectedLiveSession || String(o.sessionId) === String(selectedLiveSession.id))
+      .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
       .filter((o) => !liveDueOnly || isLiveKeepDueSoon(o))
       .filter((o) => !kw || String(o.buyer || "").toLowerCase().includes(kw) || String(o.phone || "").includes(kw) || String(o.trackingNo || "").toLowerCase().includes(kw) || String(o.memo || "").toLowerCase().includes(kw))
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
@@ -3983,8 +3987,19 @@ ${text}`;
     if (!selectedLiveSession) return;
     const target = (selectedLiveSession.products || []).find((it) => String(it.id) === String(itemId));
     if (!target) return;
-    if (toInt(target.liveQty) !== toInt(target.remainingQty)) return alert("이미 주문에 잡힌 수량이 있는 상품은 삭제할 수 없어요. 주문 취소/복구 후 삭제해줘.");
-    const ok = window.confirm(`${target.name} 라방 배정 ${target.liveQty}개를 본재고로 돌리고 삭제할까요?`);
+
+    const activeOrdersUsingItem = liveOrders.filter((o) =>
+      String(o.sessionId) === String(selectedLiveSession.id) &&
+      !o.canceledAt &&
+      String(o.status || "") !== "취소" &&
+      (o.items || []).some((it) => String(it.liveItemId) === String(itemId))
+    );
+
+    if (activeOrdersUsingItem.length > 0) {
+      return alert(`현재 주문관리의 활성 주문 ${activeOrdersUsingItem.length}건에 포함된 상품이라 삭제할 수 없어요.\n먼저 해당 주문의 [취소] 버튼으로 주문을 취소해줘.`);
+    }
+
+    const ok = window.confirm(`${target.name} 라방 배정 ${target.liveQty}개를 본재고로 돌리고 삭제할까요?\n\n취소 상태로 남아있던 예전 주문은 무시하고 삭제합니다.`);
     if (!ok) return;
     try {
       const current = products.find((p) => String(p.id) === String(target.productId));
@@ -4018,13 +4033,14 @@ ${text}`;
       }
       for (const o of sessionOrders) {
         if (toInt(o.usedPoints) > 0) await adjustMemberPointsByOrder(o, -toInt(o.usedPoints));
-        await saveLiveOrderDb({ ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소", updatedAt: nowString(), usedPoints: 0 });
+        const { error: orderDeleteError } = await supabase.from("live_orders").delete().eq("id", o.id);
+        if (orderDeleteError) throw orderDeleteError;
       }
       const { error: delError } = await supabase.from("live_sessions").delete().eq("id", selectedLiveSession.id);
       if (delError) throw delError;
       await writeAudit("live_session_delete_restore", `${selectedLiveSession.title} / orders=${sessionOrders.length}`);
       setLiveSessions((prev) => prev.filter((s) => String(s.id) !== String(selectedLiveSession.id)));
-      setLiveOrders((prev) => prev.map((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt ? { ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소" } : o));
+      setLiveOrders((prev) => prev.filter((o) => String(o.sessionId) !== String(selectedLiveSession.id)));
       setSelectedLiveSessionId(null);
       await getProducts();
       alert("라방을 삭제하고 본재고로 복구했어요.");
@@ -4319,11 +4335,13 @@ ${text}`;
     const current = liveOrders.find((o) => String(o.id) === String(orderId));
     if (!current) return;
     if (current.locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) return alert("구매확정 잠금된 주문이에요. 수정하려면 잠금해제 해줘.");
-    let next = { ...current, ...patch, updatedAt: nowString() };
-    if (Object.prototype.hasOwnProperty.call(patch, "status") && patch.status === "입금확인" && current.status !== "입금확인") {
+    const cleanPatch = { ...patch };
+    if (cleanPatch.status === "취소") return alert("취소는 상태 드롭다운이 아니라 주문 행의 [취소] 버튼으로 처리해줘.");
+    let next = { ...current, ...cleanPatch, updatedAt: nowString() };
+    if (Object.prototype.hasOwnProperty.call(cleanPatch, "status") && cleanPatch.status === "입금확인" && current.status !== "입금확인") {
       next = { ...next, deducted: true, paidAt: nowString() };
     }
-    if (Object.prototype.hasOwnProperty.call(patch, "status") && patch.status === "정산후킵") {
+    if (Object.prototype.hasOwnProperty.call(cleanPatch, "status") && cleanPatch.status === "정산후킵") {
       next = { ...next, trackingNo: "" };
     }
     try {
@@ -4521,13 +4539,67 @@ ${text}`;
   }
 
 
+
+  function LiveProductManager({ large = false }) {
+    return (
+      <div className={large ? "liveProductManagerLarge" : "liveProductManager"}>
+        <div className="filterRow">
+          <label>상품검색</label>
+          <input
+            id={large ? "live-product-search-modal" : "live-product-search-inline"}
+            value={liveProductSearch}
+            onChange={(e) => setLiveProductSearch(e.target.value)}
+            placeholder="상품명/캐릭터/카테고리"
+            autoComplete="off"
+          />
+          {!large && <button type="button" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button>}
+          {large && <button type="button" onClick={() => setLiveProductSearch("")}>검색초기화</button>}
+        </div>
+        <div className={large ? "liveProductModalTables" : ""}>
+          <div>
+            <h3>본재고 상품</h3>
+            <div className="tableWrap liveProductSourceTable"><table className="compactFixedTable"><thead><tr><th>상품명</th><th>본재고</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
+              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.retail)}</td><td><button type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
+              {liveFilteredProducts.length === 0 && <tr><td colSpan="4" className="empty">상품이 없어요.</td></tr>}
+            </tbody></table></div>
+          </div>
+          <div>
+            <h3>라방용 상품 목록</h3>
+            <div className="tableWrap liveSelectedTable"><table className="compactFixedTable"><thead><tr><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>정가</th><th>할인율</th><th>라방가</th><th>담기</th><th>삭제</th></tr></thead><tbody>
+              {selectedLiveProducts.map((it) => <tr key={it.id}><td title={it.name}>{it.name}</td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+              {selectedLiveProducts.length === 0 && <tr><td colSpan="9" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
+            </tbody></table></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function LiveProductLargeModal() {
+    if (!liveProductModalOpen) return null;
+    return createPortal(
+      <div className="liveProductModalOverlay" onMouseDown={(e) => { if (e.target.classList.contains("liveProductModalOverlay")) setLiveProductModalOpen(false); }}>
+        <div className="liveProductModal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="liveProductModalHeader">
+            <strong>라방 상품 추가/관리 크게보기</strong>
+            <button type="button" onClick={() => setLiveProductModalOpen(false)}>닫기</button>
+          </div>
+          <p className="statusLine">여기서 추가/삭제/라방가 수정하면 라방페이지에도 그대로 반영돼요.</p>
+          <LiveProductManager large />
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
   function LiveOrderPage() {
     const summary = liveCartSummary();
     const sales = liveSalesSummary();
-    const statusOptions = ["미입금", "입금확인", "정산후킵", "송장입력", "출고완료", "취소"];
+    const statusOptions = ["미입금", "입금확인", "정산후킵", "송장입력", "출고완료"];
     const matchingOrders = sameLiveMemberOrders(liveOrderForm).filter((o) => String(o.sessionId) !== String(selectedLiveSession?.id) || String(o.status) === "정산후킵");
     return (
       <section className="livePage">
+        <LiveProductLargeModal />
         <div className="panel liveTopPanel">
           <h2>라방주문</h2>
           <div className="filterRow">
@@ -4565,16 +4637,7 @@ ${text}`;
           <div className="panel liveProductPanel">
             <h2>1. 라방 상품 등록</h2>
             <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
-            <div className="filterRow"><label>상품검색</label><input value={liveProductSearch} onChange={(e) => setLiveProductSearch(e.target.value)} placeholder="상품명/캐릭터/카테고리" /></div>
-            <div className="tableWrap liveProductSourceTable"><table><thead><tr><th>상품명</th><th>본재고</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
-              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.retail)}</td><td><button onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
-              {liveFilteredProducts.length === 0 && <tr><td colSpan="4" className="empty">상품이 없어요.</td></tr>}
-            </tbody></table></div>
-            <h3>라방용 상품 목록</h3>
-            <div className="tableWrap liveSelectedTable"><table><thead><tr><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>정가</th><th>할인율</th><th>라방가</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-              {selectedLiveProducts.map((it) => <tr key={it.id}><td title={it.name}>{it.name}</td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td><button onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
-              {selectedLiveProducts.length === 0 && <tr><td colSpan="9" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
-            </tbody></table></div>
+            <LiveProductManager />
           </div>
 
           <div className="panel liveOrderPanel">
