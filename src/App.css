@@ -4018,3 +4018,91 @@ body:has(.fixedCharacterModalOverlay) {
   margin: 1px;
   white-space: nowrap;
 }
+
+/* v110: 상품 검색결과 행 높이 고정 - 결과 개수가 적어도 행이 커지지 않게 */
+.productResultFixedRows,
+.composeConditionResultArea .productResultFixedRows,
+.manualProductListPanel .productResultFixedRows {
+  height: 420px !important;
+  min-height: 420px !important;
+  max-height: 420px !important;
+  overflow: auto !important;
+  align-content: flex-start !important;
+}
+.productResultFixedRows table,
+.productResultFixedRows .productTable {
+  height: auto !important;
+  min-height: 0 !important;
+  table-layout: fixed !important;
+}
+.productResultFixedRows tbody {
+  height: auto !important;
+  min-height: 0 !important;
+}
+.productResultFixedRows tr,
+.productResultFixedRows th,
+.productResultFixedRows td {
+  height: 31px !important;
+  min-height: 31px !important;
+  max-height: 36px !important;
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+  vertical-align: middle !important;
+  line-height: 1.25 !important;
+}
+.productResultFixedRows td:nth-child(2) {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.productResultFixedRows .productNameCell {
+  max-width: 100% !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* v110: 라방 상품 크게보기 버튼을 눈에 띄게 */
+.liveOpenBigProductBtn {
+  background: #ffcc00 !important;
+  border: 2px solid #c59b00 !important;
+  font-weight: 950 !important;
+  min-width: 148px !important;
+}
+.liveProductBigModal {
+  width: min(1480px, calc(100vw - 32px)) !important;
+  height: min(900px, calc(100vh - 32px)) !important;
+}
+.liveProductBigTable {
+  height: 610px !important;
+  max-height: 610px !important;
+}
+.liveProductBigTable tr,
+.liveProductBigTable th,
+.liveProductBigTable td,
+.liveProductSourceTable tr,
+.liveProductSourceTable th,
+.liveProductSourceTable td {
+  height: 31px !important;
+  min-height: 31px !important;
+  max-height: 36px !important;
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+}
+
+/* v110: 주문관리 정산서/취소 버튼 가시성 */
+.liveOrdersTable table {
+  min-width: 1320px !important;
+}
+.liveOrdersTable td:nth-child(9) {
+  white-space: normal !important;
+  overflow: visible !important;
+}
+.liveOrdersTable td:nth-child(9) button,
+.liveOrdersTable td:nth-child(11) button {
+  display: inline-flex !important;
+  margin: 1px !important;
+  min-width: 42px !important;
+  height: 22px !important;
+  padding: 1px 5px !important;
+}

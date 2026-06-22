@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import { createPortal } from "react-dom";
 
@@ -357,7 +357,7 @@ export default function App() {
   const [isImportingExcel, setIsImportingExcel] = useState(false);
 
   const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
+  const searchInputRef = useRef(null);
   const [char1Selected, setChar1Selected] = useState([]);
   const [char2Selected, setChar2Selected] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState("전체");
@@ -796,7 +796,7 @@ export default function App() {
 
   function resetFilters() {
     setSearch("");
-    setSearchInput("");
+    if (searchInputRef.current) searchInputRef.current.value = "";
     setChar1Selected([]);
     setChar2Selected([]);
     setCategoryFilter("전체");
@@ -2269,7 +2269,7 @@ export default function App() {
       <>
         <div className="filterRow">
           <label>상품명</label>
-          <input id="manual-product-search-input" name="manual-product-search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="상품명 검색" autoComplete="off" onKeyDown={(e) => { if (!e.nativeEvent?.isComposing && e.key === "Enter") { e.preventDefault(); runManualProductSearch(); } }} />
+          <input id="manual-product-search-input" name="manual-product-search" defaultValue={search} ref={searchInputRef} placeholder="상품명 검색" autoComplete="off" onKeyDown={(e) => { if (!e.nativeEvent?.isComposing && e.key === "Enter") { e.preventDefault(); runManualProductSearch(); } }} />
         <button type="button" onClick={runManualProductSearch}>검색</button>
         <button type="button" onClick={clearManualProductSearch}>검색초기화</button>
           <MultiCheckFilter label="캐릭터1" options={char1Options} selected={char1Selected} setSelected={setChar1Selected} />
@@ -2307,7 +2307,7 @@ export default function App() {
 
   function ProductTable({ mode }) {
     return (
-      <div className="tableWrap">
+      <div className="tableWrap productResultFixedRows">
         <table className="productTable">
           <thead><tr><th>ID</th><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>카테고리</th><th>재고</th><th>도매가</th><th>소비자가</th><th>{mode === "compose" ? "추가" : "삭제"}</th></tr></thead>
           <tbody>
@@ -3807,7 +3807,7 @@ ${text}`;
   const liveFilteredOrders = useMemo(() => {
     const kw = liveOrderSearch.trim().toLowerCase();
     return liveOrders
-      .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
+      .filter((o) => !o.canceledAt && String(o.status || "").trim() !== "취소")
       .filter((o) => !selectedLiveSession || String(o.sessionId) === String(selectedLiveSession.id))
       .filter((o) => !liveDueOnly || isLiveKeepDueSoon(o))
       .filter((o) => !kw || String(o.buyer || "").toLowerCase().includes(kw) || String(o.phone || "").includes(kw) || String(o.trackingNo || "").toLowerCase().includes(kw) || String(o.memo || "").toLowerCase().includes(kw))
@@ -4012,13 +4012,17 @@ ${text}`;
     if (!selectedLiveSession) return;
     const target = (selectedLiveSession.products || []).find((it) => String(it.id) === String(itemId));
     if (!target) return;
-    const activeRefs = liveOrders.filter((o) =>
-      String(o.sessionId) === String(selectedLiveSession.id) &&
-      !o.canceledAt &&
-      String(o.status || "") !== "취소" &&
-      (o.items || []).some((it) => String(it.liveItemId) === String(itemId))
-    );
-    if (activeRefs.length > 0) return alert("현재 주문관리의 활성 주문에 들어있는 상품이라 삭제할 수 없어요. 먼저 해당 주문의 [취소] 버튼으로 주문을 취소해줘.");
+    const activeRefs = liveOrders.filter((o) => {
+      const active = String(o.sessionId) === String(selectedLiveSession.id) &&
+        !o.canceledAt &&
+        String(o.status || "").trim() !== "취소" &&
+        (o.items || []).some((it) => String(it.liveItemId) === String(itemId));
+      return active;
+    });
+    if (activeRefs.length > 0) {
+      const names = activeRefs.map((o) => o.buyer || o.id).slice(0, 3).join(", ");
+      return alert(`현재 활성 주문에 들어있는 상품이라 삭제할 수 없어요. 주문관리에서 해당 주문의 [취소] 버튼을 눌러 주문을 먼저 취소해줘.\n대상: ${names}`);
+    }
     const ok = window.confirm(`${target.name} 라방 배정 ${target.liveQty}개를 본재고로 돌리고 삭제할까요?`);
     if (!ok) return;
     try {
@@ -4600,7 +4604,7 @@ ${text}`;
           <div className="panel liveProductPanel">
             <h2>1. 라방 상품 등록</h2>
             <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
-            <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
+            <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" className="liveOpenBigProductBtn" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
             <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>본재고</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
               {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.retail)}</td><td><button onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
               {liveFilteredProducts.length === 0 && <tr><td colSpan="4" className="empty">상품이 없어요.</td></tr>}
@@ -4666,7 +4670,7 @@ ${text}`;
               <span className="statusLine">상태 변경은 각 주문 행의 드롭다운에서 저장돼요.</span>
             </div>
             <div className="tableWrap liveOrdersTable"><table><thead><tr><th>구매자</th><th>라방일</th><th>금액</th><th>포인트</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>수정</th><th>취소</th><th>삭제</th></tr></thead><tbody>
-              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td>{toInt(o.usedPoints) > 0 ? `-${money(o.usedPoints)}` : "-"}</td><td><select disabled={o.locked} value={(liveOrderDrafts[o.id]?.status ?? o.status)} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), status: e.target.value } }))}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" disabled={o.locked} onClick={() => { const d = liveOrderDrafts[o.id] || {}; updateLiveOrder(o.id, { status: d.status ?? o.status, trackingNo: d.trackingNo ?? o.trackingNo ?? "" }); }}>저장</button></td><td>{liveOrderKeepDday({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}</td><td><input disabled={o.locked || (liveOrderDrafts[o.id]?.status ?? o.status) === "정산후킵"} value={(liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "")} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), trackingNo: e.target.value, status: e.target.value ? "송장입력" : (prev[o.id]?.status ?? o.status) } }))} /></td><td><button onClick={() => bundleLiveOrdersFor(o)}>{o.bundleId ? "묶임" : "합치기"}</button></td><td><button onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button type="button" disabled={!!o.canceledAt || o.locked} onClick={() => beginEditLiveOrder(o)}>수정</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
+              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td>{toInt(o.usedPoints) > 0 ? `-${money(o.usedPoints)}` : "-"}</td><td><select disabled={o.locked} value={(liveOrderDrafts[o.id]?.status ?? o.status)} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), status: e.target.value } }))}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" disabled={o.locked} onClick={() => { const d = liveOrderDrafts[o.id] || {}; updateLiveOrder(o.id, { status: d.status ?? o.status, trackingNo: d.trackingNo ?? o.trackingNo ?? "" }); }}>저장</button></td><td>{liveOrderKeepDday({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}</td><td><input disabled={o.locked || (liveOrderDrafts[o.id]?.status ?? o.status) === "정산후킵"} value={(liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "")} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), trackingNo: e.target.value, status: e.target.value ? "송장입력" : (prev[o.id]?.status ?? o.status) } }))} /></td><td><button onClick={() => bundleLiveOrdersFor(o)}>{o.bundleId ? "묶임" : "합치기"}</button></td><td><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button type="button" disabled={!!o.canceledAt || o.locked} onClick={() => beginEditLiveOrder(o)}>수정</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
               {liveFilteredOrders.length === 0 && <tr><td colSpan="12" className="empty">주문 기록이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>통합 회원관리</h3>
@@ -5464,11 +5468,11 @@ ${text}`;
 
 
   function runManualProductSearch() {
-    setSearch(searchInput);
+    setSearch(searchInputRef.current?.value || "");
   }
 
   function clearManualProductSearch() {
-    setSearchInput("");
+    if (searchInputRef.current) searchInputRef.current.value = "";
     setSearch("");
   }
 
