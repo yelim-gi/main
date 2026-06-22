@@ -3919,105 +3919,102 @@ body:has(.fixedCharacterModalOverlay) {
   .liveNoticeInput { width: 100%; }
 }
 
-/* v107: 라방 상품 검색/크게보기 안정화 */
+/* v109: 검색 결과 행 높이 고정 + 라방 상품 크게보기 + 주문관리 버튼 가시성 */
+.compactRows table,
 .liveProductSourceTable table,
+.liveProductBigTable table,
+.composeConditionResultArea table,
+.manualProductListPanel table {
+  height: auto !important;
+  table-layout: fixed !important;
+}
+.compactRows tbody,
 .liveProductSourceTable tbody,
-.liveProductModalTable,
-.liveProductModalTable tbody {
+.liveProductBigTable tbody,
+.composeConditionResultArea tbody,
+.manualProductListPanel tbody {
   height: auto !important;
   min-height: 0 !important;
 }
-
+.compactRows tr,
 .liveProductSourceTable tr,
-.liveProductSourceTable th,
-.liveProductSourceTable td,
-.liveProductModalTable tr,
-.liveProductModalTable th,
-.liveProductModalTable td {
-  height: 26px !important;
-  min-height: 0 !important;
+.liveProductBigTable tr,
+.composeConditionResultArea tr,
+.manualProductListPanel tr {
+  height: 30px !important;
+  min-height: 30px !important;
   max-height: 34px !important;
-  vertical-align: middle !important;
 }
-
-.liveProductSourceTable td:nth-child(1),
-.liveProductModalTable td:nth-child(2) {
-  white-space: normal !important;
+.compactRows td,
+.liveProductSourceTable td,
+.liveProductBigTable td,
+.composeConditionResultArea td,
+.manualProductListPanel td {
+  height: 30px !important;
+  min-height: 30px !important;
+  max-height: 34px !important;
+  padding: 4px 6px !important;
+  vertical-align: middle !important;
   line-height: 1.25 !important;
 }
-
-.liveProductModalOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483600;
-  background: rgba(0,0,0,.18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.liveProductSourceTable {
+  height: 230px !important;
+  max-height: 230px !important;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
 }
-
-.liveProductModalBox {
-  width: min(1280px, calc(100vw - 28px));
-  height: min(860px, calc(100vh - 28px));
+.liveProductSearchInput {
+  min-width: 260px !important;
+  width: 260px !important;
+}
+.liveProductBigOverlay {
+  z-index: 2147483647 !important;
+}
+.liveProductBigModal {
+  width: min(1280px, calc(100vw - 48px));
+  height: min(860px, calc(100vh - 48px));
   background: #fff9e6;
-  border: 1px solid #d6c15c;
-  box-shadow: 0 12px 28px rgba(0,0,0,.24);
-  padding: 10px;
-  display: grid;
-  grid-template-rows: auto auto minmax(260px, 1fr) auto minmax(170px, 240px);
-  gap: 8px;
-  overflow: hidden;
-}
-
-.liveProductModalHeader {
+  border: 1px solid #777;
+  box-shadow: 0 10px 30px rgba(0,0,0,.28);
+  padding: 12px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #fff2b3;
-  border: 1px solid #d6c15c;
-  padding: 7px 9px;
-  font-size: 14px;
-  font-weight: 900;
+  flex-direction: column;
+  gap: 8px;
+  color: #4a3b00 !important;
 }
-
-.liveProductModalSearch {
-  margin-bottom: 0 !important;
-}
-
-.liveProductModalSearch input {
-  min-width: 360px;
-}
-
-.liveProductModalTableWrap,
-.liveProductModalSelectedWrap {
-  border: 1px solid #bbb;
-  background: #fff;
+.liveProductBigTable {
+  height: 560px !important;
+  max-height: 560px !important;
   overflow: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
+  background: #fff !important;
 }
-
-.liveProductModalTable {
-  width: 100% !important;
+.liveProductBigSelected {
+  height: 180px !important;
+  max-height: 180px !important;
+  overflow: auto !important;
+  background: #fff !important;
+}
+.liveOrdersTable {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+.liveOrdersTable table {
+  min-width: 1450px !important;
   table-layout: fixed !important;
-  border-collapse: collapse !important;
 }
-
-.liveProductModalTable th:nth-child(1),
-.liveProductModalTable td:nth-child(1) { width: 58px; }
-.liveProductModalTable th:nth-child(2),
-.liveProductModalTable td:nth-child(2) { width: 34%; }
-.liveProductModalTable th:nth-child(6),
-.liveProductModalTable td:nth-child(6),
-.liveProductModalTable th:nth-child(9),
-.liveProductModalTable td:nth-child(9) { width: 70px; }
-
-@media (max-width: 900px) {
-  .liveProductModalBox {
-    width: calc(100vw - 16px);
-    height: calc(100vh - 16px);
-  }
-  .liveProductModalSearch input {
-    min-width: 180px;
-  }
+.liveOrdersTable th:nth-child(9),
+.liveOrdersTable td:nth-child(9) {
+  width: 190px !important;
+}
+.liveOrdersTable th:nth-child(10),
+.liveOrdersTable td:nth-child(10),
+.liveOrdersTable th:nth-child(11),
+.liveOrdersTable td:nth-child(11),
+.liveOrdersTable th:nth-child(12),
+.liveOrdersTable td:nth-child(12) {
+  width: 78px !important;
+}
+.liveOrdersTable button {
+  margin: 1px;
+  white-space: nowrap;
 }
