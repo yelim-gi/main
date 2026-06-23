@@ -5031,6 +5031,62 @@ ${text}`;
     downloadBlob(blob, `${safeFileName(selectedMemberInfo?.name || "회원")}_선택정산서.zip`);
   }
 
+
+  async function closeLiveSessionRestoreUnsold() {
+    if (!selectedLiveSession) return alert("종료할 라방을 선택해줘.");
+    const liveProducts = selectedLiveSession.products || [];
+    const restoreItems = liveProducts.filter((li) => toInt(li.remainingQty) > 0);
+    if (restoreItems.length === 0) return alert("원복할 미판매 재고가 없어요.");
+    const totalQty = restoreItems.reduce((sum, li) => sum + toInt(li.remainingQty), 0);
+    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료하고 미판매 재고 ${totalQty}개를 본재고로 복귀할까요?\n\n판매된 주문은 그대로 유지되고, 남은수량만 0으로 처리됩니다.`);
+    if (!ok) return;
+
+    try {
+      const restoreByProduct = {};
+      restoreItems.forEach((li) => {
+        const productId = li.productId || li.product_id;
+        if (!productId) return;
+        restoreByProduct[String(productId)] = (restoreByProduct[String(productId)] || 0) + toInt(li.remainingQty);
+      });
+
+      for (const [productId, qty] of Object.entries(restoreByProduct)) {
+        const current = products.find((p) => String(p.id) === String(productId));
+        const currentStock = toInt(current?.stock);
+        const { error } = await supabase.from("products").update({ stock: currentStock + qty }).eq("id", productId);
+        if (error) throw error;
+      }
+
+      const nextProducts = liveProducts.map((li) => {
+        const remain = toInt(li.remainingQty);
+        if (remain <= 0) return li;
+        return {
+          ...li,
+          remainingQty: "0",
+          restoredQty: toInt(li.restoredQty) + remain,
+          restoredAt: nowString(),
+        };
+      });
+
+      const nextSession = {
+        ...selectedLiveSession,
+        products: nextProducts,
+        status: "종료",
+        closedAt: nowString(),
+      };
+
+      await saveLiveSessionDb(nextSession);
+      setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
+      await getProducts();
+      await getLiveSessions();
+      await writeAudit("live_session_close_restore_unsold", `${selectedLiveSession.title || selectedLiveSession.id} / qty=${totalQty}`);
+      alert(`라방을 종료하고 미판매 재고 ${totalQty}개를 본재고로 복귀했어요.`);
+    } catch (error) {
+      alert("미판매 재고 원복 실패: " + String(error?.message || error));
+      await getProducts();
+      await getLiveSessions();
+    }
+  }
+
   function LiveOrderPage() {
     const summary = liveCartSummary();
     const sales = liveSalesSummary();
