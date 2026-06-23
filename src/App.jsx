@@ -3893,7 +3893,7 @@ ${text}`;
   async function getLiveMembers() {
     const { data, error } = await supabase.from("live_members").select("*").order("updated_at", { ascending: false });
     if (error) { if (!explainLiveTableMissing(error)) console.log(error); return; }
-    setLiveMembers((data || []).map(liveMemberFromDb));
+    setLiveMembers(dedupeLiveMembers((data || []).map(liveMemberFromDb)));
   }
 
   async function getLiveOrders() {
@@ -3980,15 +3980,15 @@ ${text}`;
 
   const liveFilteredMembers = useMemo(() => {
     const kw = liveMemberSearch.trim().toLowerCase();
-    return liveMembers.filter((m) => !kw || String(m.name || "").toLowerCase().includes(kw) || String(m.phone || "").includes(kw) || String(m.memo || "").toLowerCase().includes(kw));
+    return liveMembers.filter((m) => memberMatchesSearch(m, kw));
   }, [liveMembers, liveMemberSearch]);
 
   const liveMemberLookupResults = useMemo(() => {
     const kw = liveMemberLookupSearch.trim().toLowerCase();
-    if (!kw) return [];
+    if (!kw) return liveMembers.slice(0, 100);
     return liveMembers
-      .filter((m) => String(m.name || "").toLowerCase().includes(kw) || phoneLast4(m.phone).includes(kw) || String(m.phone || "").includes(kw))
-      .slice(0, 8);
+      .filter((m) => memberMatchesSearch(m, kw))
+      .slice(0, 100);
   }, [liveMembers, liveMemberLookupSearch]);
 
   function makeLiveId(prefix = "live") {
@@ -4009,6 +4009,37 @@ ${text}`;
     const n = String(name || "").trim().replace(/\s+/g, "");
     const last = phoneLast4(phone);
     return n && last ? `${n}-${last}` : "";
+  }
+
+  function dedupeLiveMembers(rows = []) {
+    const map = new Map();
+    for (const row of rows || []) {
+      const key = makeMemberKey(row.name, row.phone) || String(row.id || "");
+      const prev = map.get(key);
+      if (!prev) {
+        map.set(key, row);
+        continue;
+      }
+      const prevTime = new Date(prev.updatedAt || prev.updated_at || 0).getTime() || 0;
+      const rowTime = new Date(row.updatedAt || row.updated_at || 0).getTime() || 0;
+      const keep = rowTime >= prevTime ? row : prev;
+      const other = keep === row ? prev : row;
+      map.set(key, {
+        ...other,
+        ...keep,
+        points: String(toInt(keep.points)),
+        pointRate: String(keep.pointRate ?? other.pointRate ?? "0"),
+        memo: keep.memo || other.memo || "",
+      });
+    }
+    return Array.from(map.values());
+  }
+
+  function memberMatchesSearch(member, rawKw) {
+    const kw = String(rawKw || "").trim().toLowerCase();
+    if (!kw) return true;
+    const hay = `${member.name || ""} ${member.phone || ""} ${phoneLast4(member.phone)} ${member.memo || ""}`.toLowerCase();
+    return kw.split(/\s+/).filter(Boolean).every((token) => hay.includes(token));
   }
 
   function orderAddressOf(row) {
@@ -4250,8 +4281,9 @@ ${text}`;
     const row = { id: existing?.id || makeLiveId("member"), updatedAt: nowString(), ...liveMemberForm, name, address: [liveMemberForm.baseAddress || "", liveMemberForm.detailAddress || ""].filter(Boolean).join(" ") };
     try {
       await saveLiveMemberDb(row);
-      setLiveMembers((prev) => existing ? prev.map((m) => String(m.id) === String(existing.id) ? { ...m, ...row } : m) : [row, ...prev]);
-      setLiveOrderForm((prev) => ({ ...prev, buyer: row.name, phone: row.phone || "", postalCode: row.postalCode || "", baseAddress: row.baseAddress || "", detailAddress: row.detailAddress || "", address: row.address || "", points: String(row.points || "0"), usedPoints: 0 }));
+      setLiveMembers((prev) => dedupeLiveMembers(existing ? prev.map((m) => String(m.id) === String(existing.id) ? { ...m, ...row } : m) : [row, ...prev]));
+      setSelectedLiveMemberId(row.id);
+      setLiveOrderForm((prev) => ({ ...prev, buyer: row.name, phone: row.phone || "", postalCode: row.postalCode || "", baseAddress: row.baseAddress || "", detailAddress: row.detailAddress || "", address: row.address || "", points: String(row.points || "0"), usedPoints: 0, pointRate: String(row.pointRate || prev.pointRate || "0") }));
       setLiveMemberForm({ name: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", points: "0", pointRate: "0", memo: "" });
     } catch (error) {
       alert("회원 저장 실패: " + error.message);
@@ -4276,18 +4308,31 @@ ${text}`;
 
   function loadMemberToOrder(member) {
     setSelectedLiveMemberId(member.id || "");
-    setLiveMemberLookupSearch(`${member.name || ""} ${phoneLast4(member.phone)}`.trim());
+    // 선택 후에도 저장회원 드롭다운이 계속 보이도록 검색어를 비워 전체 회원 목록을 유지한다.
+    setLiveMemberLookupSearch("");
     const availablePoints = availableMemberPoints(member);
-    setLiveOrderForm((prev) => ({ ...prev, buyer: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(availablePoints || "0"), usedPoints: 0, pointRate: String(member.pointRate || selectedLiveSession?.pointRate || "0"), memo: member.memo || prev.memo }));
-    setLiveMemberForm({ name: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(member.points || 0), pointRate: String(member.pointRate || "0"), memo: member.memo || "" });
+    setLiveOrderForm((prev) => ({ ...prev, buyer: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(availablePoints || "0"), usedPoints: 0, pointRate: String(member.pointRate || selectedLiveSession?.pointRate || "0"), memo: prev.memo }));
   }
 
   async function deleteLiveMember(member) {
     if (!member?.id) return;
-    if (!window.confirm(`${member.name} 회원 정보를 삭제할까요?`)) return;
+    if (!window.confirm(`${member.name} 회원 정보를 삭제할까요?\n주문 기록은 유지되고 회원 목록에서만 삭제됩니다.`)) return;
     const { error } = await supabase.from("live_members").delete().eq("id", member.id);
     if (error) return alert("회원 삭제 실패: " + error.message);
+    const key = makeMemberKey(member.name, member.phone);
     setLiveMembers((prev) => prev.filter((m) => String(m.id) !== String(member.id)));
+    if (String(selectedLiveMemberId) === String(member.id) || makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone) === key) {
+      setSelectedLiveMemberId("");
+      setLiveMemberLookupSearch("");
+      setLiveOrderForm((prev) => ({ ...prev, buyer: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", points: "0", usedPoints: 0, pointRate: String(selectedLiveSession?.pointRate || "0") }));
+      setLiveCart([]);
+      setEditingLiveOrderId("");
+    }
+    if (String(selectedMemberInfoId) === String(member.id)) setSelectedMemberInfoId("");
+    if (makeMemberKey(liveMemberForm.name, liveMemberForm.phone) === key) {
+      setLiveMemberForm({ name: "", phone: "", postalCode: "", baseAddress: "", detailAddress: "", address: "", points: "0", pointRate: "0", memo: "" });
+    }
+    setSelectedMemberOrderIds([]);
   }
 
   function keepDday(member) {
@@ -4338,8 +4383,9 @@ ${text}`;
 
   function memberFormFromOrderForm(extra = {}, pointDelta = 0, earnDelta = 0) {
     const existingByKey = liveMembers.find((m) => makeMemberKey(m.name, m.phone) === makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone));
-    const id = selectedLiveMemberId || existingByKey?.id || makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone) || makeLiveId("member");
-    const existing = liveMembers.find((m) => String(m.id) === String(id)) || existingByKey || {};
+    const selectedExisting = selectedLiveMemberId ? liveMembers.find((m) => String(m.id) === String(selectedLiveMemberId)) : null;
+    const id = existingByKey?.id || selectedExisting?.id || makeLiveId("member");
+    const existing = existingByKey || selectedExisting || {};
     const delta = toInt(pointDelta);
     const earn = toInt(earnDelta);
     return {
@@ -4365,7 +4411,7 @@ ${text}`;
     const row = memberFormFromOrderForm({}, pointDelta, earnDelta);
     await saveLiveMemberDb(row);
     setSelectedLiveMemberId(row.id);
-    setLiveMembers((prev) => [row, ...prev.filter((m) => String(m.id) !== String(row.id))]);
+    setLiveMembers((prev) => dedupeLiveMembers([row, ...prev.filter((m) => String(m.id) !== String(row.id))]));
     setLiveOrderForm((prev) => ({ ...prev, points: String(availableMemberPoints(row)) }));
     if (showAlert) alert("회원 정보가 저장됐어요.");
     return row;
@@ -4864,17 +4910,17 @@ ${text}`;
 
   const memberInfoFilteredMembers = useMemo(() => {
     const kw = memberInfoSearch.trim().toLowerCase();
-    return liveMembers.filter((m) => !kw || String(m.name || "").toLowerCase().includes(kw) || String(m.phone || "").includes(kw) || phoneLast4(m.phone).includes(kw));
+    return liveMembers.filter((m) => memberMatchesSearch(m, kw));
   }, [liveMembers, memberInfoSearch]);
 
   const selectedMemberInfo = useMemo(() => {
-    return liveMembers.find((m) => String(m.id) === String(selectedMemberInfoId)) || memberInfoFilteredMembers[0] || null;
-  }, [liveMembers, selectedMemberInfoId, memberInfoFilteredMembers]);
+    return liveMembers.find((m) => String(m.id) === String(selectedMemberInfoId)) || null;
+  }, [liveMembers, selectedMemberInfoId]);
 
   const selectedMemberOrders = useMemo(() => {
     if (!selectedMemberInfo) return [];
     const key = makeMemberKey(selectedMemberInfo.name, selectedMemberInfo.phone);
-    return liveOrders.filter((o) => !o.canceledAt && makeMemberKey(o.buyer, o.phone) === key).sort((a, b) => String(b.liveDate || b.createdAt).localeCompare(String(a.liveDate || a.createdAt)));
+    return liveOrders.filter((o) => !o.canceledAt && (makeMemberKey(o.buyer, o.phone) === key || String(o.memberKey || "") === key || String(o.memberKey || "") === String(selectedMemberInfo.id || ""))).sort((a, b) => String(b.liveDate || b.createdAt).localeCompare(String(a.liveDate || a.createdAt)));
   }, [liveOrders, selectedMemberInfo]);
 
   async function saveMemberInfoFormAndSync() {
@@ -4894,7 +4940,7 @@ ${text}`;
           changedOrders.push(next);
         }
       }
-      setLiveMembers((prev) => existing ? prev.map((m) => String(m.id) === String(row.id) ? row : m) : [row, ...prev]);
+      setLiveMembers((prev) => dedupeLiveMembers(existing ? prev.map((m) => String(m.id) === String(row.id) ? row : m) : [row, ...prev]));
       if (changedOrders.length) setLiveOrders((prev) => prev.map((o) => changedOrders.find((x) => String(x.id) === String(o.id)) || o));
       setSelectedMemberInfoId(row.id);
       alert(`회원정보를 저장했어요.${changedOrders.length ? ` 출고 전 주문 ${changedOrders.length}건에도 반영했어요.` : ""}`);
@@ -5073,6 +5119,10 @@ ${text}`;
           <h2>회원정보</h2>
           <p className="statusLine">회원 수정/삭제, 라방 전체 주문내역, 합배송/킵 상태 변경, 선택 정산서 출력을 관리하는 탭이에요.</p>
           <div className="filterRow"><label>회원검색</label><input value={memberInfoSearch} onChange={(e) => setMemberInfoSearch(e.target.value)} placeholder="이름/전화번호/뒷4자리" />{memberInfoFilteredMembers.length > 0 && <select value={selectedMemberInfo?.id || ""} onChange={(e) => { const m = liveMembers.find((x) => String(x.id) === e.target.value); if (m) loadMemberInfoToForm(m); }}><option value="">회원 선택</option>{memberInfoFilteredMembers.map((m) => <option key={m.id} value={m.id}>{m.name} / {phoneLast4(m.phone)} / {toInt(m.points).toLocaleString()}P</option>)}</select>}</div>
+          <div className="tableWrap memberListTable"><table><thead><tr><th>고객명</th><th>전화번호</th><th>보유P</th><th>적립%</th><th>주소</th><th>메모</th><th>관리</th></tr></thead><tbody>
+            {memberInfoFilteredMembers.map((m) => <tr key={m.id} className={selectedMemberInfo?.id === m.id ? "selectedRow" : ""} onClick={() => loadMemberInfoToForm(m)}><td>{m.name}</td><td>{m.phone}</td><td>{toInt(m.points).toLocaleString()}P</td><td>{m.pointRate || 0}%</td><td title={m.address}>{m.address || "-"}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={(e) => { e.stopPropagation(); loadMemberInfoToForm(m); }}>선택</button><button className="deleteBtn" type="button" onClick={(e) => { e.stopPropagation(); deleteLiveMember(m); }}>삭제</button></td></tr>)}
+            {memberInfoFilteredMembers.length === 0 && <tr><td colSpan="7" className="empty">저장된 회원이 없어요.</td></tr>}
+          </tbody></table></div>
           <div className="filterRow"><label>고객명</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>전화번호</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>보유P</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><label>기본적립%</label><input className="tinyInput" value={liveMemberForm.pointRate} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, pointRate: e.target.value })} /></div>
           <div className="filterRow"><label>우편번호</label><input value={liveMemberForm.postalCode} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, postalCode: e.target.value })} /><button type="button" onClick={() => openDaumPostcode("member")}>우편번호 검색</button><label>기본주소</label><input className="wideInput" value={liveMemberForm.baseAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, baseAddress: e.target.value, address: [e.target.value, liveMemberForm.detailAddress].filter(Boolean).join(" ") })} /><label>상세주소</label><input className="wideInput" value={liveMemberForm.detailAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, detailAddress: e.target.value, address: [liveMemberForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /></div>
           <div className="filterRow"><label>메모</label><input className="wideInput" value={liveMemberForm.memo} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, memo: e.target.value })} /><button type="button" onClick={saveMemberInfoFormAndSync}>회원정보 저장/주문반영</button>{selectedMemberInfo && <button className="deleteBtn" type="button" onClick={() => deleteLiveMember(selectedMemberInfo)}>회원 삭제</button>}</div>
