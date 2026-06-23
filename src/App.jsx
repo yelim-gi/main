@@ -5161,9 +5161,9 @@ ${text}`;
             <h2>2. 라방 상품 등록</h2>
             <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
             <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" className="liveOpenBigProductBtn" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
-            <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
-              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
-              {liveFilteredProducts.length === 0 && <tr><td colSpan="5" className="empty">상품이 없어요.</td></tr>}
+            <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
+              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td title={p.char1 || ""}>{p.char1 || "-"}</td><td title={p.char2 || ""}>{p.char2 || "-"}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
+              {liveFilteredProducts.length === 0 && <tr><td colSpan="7" className="empty">상품이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>라방용 상품 목록</h3>
             <div className="tableWrap liveSelectedTable"><table><thead><tr><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>도매가</th><th>정가</th><th>할인율</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>

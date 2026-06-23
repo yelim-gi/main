@@ -4236,3 +4236,23 @@ input.liveNameInput {
   outline: 1px solid #d0aa00 !important;
   outline-offset: -1px !important;
 }
+
+/* v135: 라방 상품추가 목록에서 캐릭터1/2도 한눈에 보이게 */
+.liveProductSourceTable th,
+.liveProductSourceTable td {
+  vertical-align: middle !important;
+}
+.liveProductSourceTable th:nth-child(1),
+.liveProductSourceTable td:nth-child(1) { width: 30%; }
+.liveProductSourceTable th:nth-child(2),
+.liveProductSourceTable td:nth-child(2),
+.liveProductSourceTable th:nth-child(3),
+.liveProductSourceTable td:nth-child(3) { width: 12%; }
+.liveProductSourceTable th:nth-child(4),
+.liveProductSourceTable td:nth-child(4) { width: 8%; }
+.liveProductSourceTable th:nth-child(5),
+.liveProductSourceTable td:nth-child(5),
+.liveProductSourceTable th:nth-child(6),
+.liveProductSourceTable td:nth-child(6) { width: 12%; }
+.liveProductSourceTable th:nth-child(7),
+.liveProductSourceTable td:nth-child(7) { width: 10%; }
