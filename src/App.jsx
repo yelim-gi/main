@@ -4129,6 +4129,29 @@ ${text}`;
     });
   }
 
+
+  function qtyToRestoreForLiveItem(liveItem, orderItems = []) {
+    return (orderItems || []).reduce((sum, it) => {
+      const sameLiveItem = String(it.liveItemId || "") === String(liveItem.id || "");
+      const sameProduct = String(it.productId || "") === String(liveItem.productId || "");
+      const sameName = String(it.name || "").trim() && String(it.name || "").trim() === String(liveItem.name || "").trim();
+      return sameLiveItem || sameProduct || sameName ? sum + toInt(it.qty) : sum;
+    }, 0);
+  }
+
+  function restoreOrderItemsToLiveProducts(session, orderItems = []) {
+    if (!session) return null;
+    const products = (session.products || []).map((li) => {
+      const restored = qtyToRestoreForLiveItem(li, orderItems);
+      if (!restored) return li;
+      return {
+        ...li,
+        remainingQty: String(Math.min(toInt(li.liveQty), toInt(li.remainingQty) + restored)),
+      };
+    });
+    return { ...session, products };
+  }
+
   function updateLiveCartItem(idx, patch) {
     setLiveCart((prev) => prev.map((it, i) => {
       if (i !== idx) return it;
@@ -4391,23 +4414,25 @@ ${text}`;
     const ok = window.confirm(`이 주문을 취소하고 주문관리 목록에서 제거할까요?\n\n취소 시 주문 품목은 라방 남은수량으로 복구됩니다.\n구매자: ${order.buyer}\n금액: ${money(order.total)}`);
     if (!ok) return;
     try {
-      const session = liveSessions.find((s) => String(s.id) === String(order.sessionId));
-      if (session) {
-        const nextSession = {
-          ...session,
-          products: (session.products || []).map((li) => {
-            const restored = (order.items || []).filter((it) => String(it.liveItemId) === String(li.id)).reduce((sum, it) => sum + toInt(it.qty), 0);
-            return restored ? { ...li, remainingQty: String(Math.min(toInt(li.liveQty), toInt(li.remainingQty) + restored)) } : li;
-          })
-        };
-        await saveLiveSessionDb(nextSession);
-        setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
+      let session = liveSessions.find((s) => String(s.id) === String(order.sessionId));
+      if (!session) {
+        const { data: dbSession, error: sessionError } = await supabase.from("live_sessions").select("*").eq("id", order.sessionId).maybeSingle();
+        if (sessionError) throw sessionError;
+        if (dbSession) session = liveSessionFromDb(dbSession);
       }
+
+      const nextSession = restoreOrderItemsToLiveProducts(session, order.items || []);
+      if (nextSession) {
+        await saveLiveSessionDb(nextSession);
+        setLiveSessions((prev) => prev.map((s) => String(s.id) === String(nextSession.id) ? nextSession : s));
+      }
+
       if (toInt(order.usedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
       setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
       setLiveOrderDrafts((prev) => { const next = { ...prev }; delete next[order.id]; return next; });
+      await Promise.all([getLiveSessions(), getLiveOrders(), getLiveMembers()]);
       await writeAudit("live_order_cancel_delete_restore", `${order.buyer} / ${order.id}`);
       alert("주문을 취소하고 라방재고로 복구했어요.");
     } catch (error) {
@@ -4422,24 +4447,25 @@ ${text}`;
     const ok = window.confirm(`주문을 완전히 삭제할까요?\n\n취소 전 주문이면 라방 남은수량을 먼저 복구한 뒤 삭제됩니다.\n구매자: ${order.buyer}`);
     if (!ok) return;
     try {
-      if (!order.canceledAt) {
-        const session = liveSessions.find((s) => String(s.id) === String(order.sessionId));
-        if (session) {
-          const nextSession = {
-            ...session,
-            products: (session.products || []).map((li) => {
-              const restored = (order.items || []).filter((it) => String(it.liveItemId) === String(li.id)).reduce((sum, it) => sum + toInt(it.qty), 0);
-              return restored ? { ...li, remainingQty: String(Math.min(toInt(li.liveQty), toInt(li.remainingQty) + restored)) } : li;
-            })
-          };
+      if (!order.canceledAt && String(order.status || "") !== "취소") {
+        let session = liveSessions.find((s) => String(s.id) === String(order.sessionId));
+        if (!session) {
+          const { data: dbSession, error: sessionError } = await supabase.from("live_sessions").select("*").eq("id", order.sessionId).maybeSingle();
+          if (sessionError) throw sessionError;
+          if (dbSession) session = liveSessionFromDb(dbSession);
+        }
+        const nextSession = restoreOrderItemsToLiveProducts(session, order.items || []);
+        if (nextSession) {
           await saveLiveSessionDb(nextSession);
-          setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
+          setLiveSessions((prev) => prev.map((s) => String(s.id) === String(nextSession.id) ? nextSession : s));
         }
       }
-      if (!order.canceledAt && toInt(order.usedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints));
+      if (!order.canceledAt && String(order.status || "") !== "취소" && toInt(order.usedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
       setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
+      setLiveOrderDrafts((prev) => { const next = { ...prev }; delete next[order.id]; return next; });
+      await Promise.all([getLiveSessions(), getLiveOrders(), getLiveMembers()]);
       await writeAudit("live_order_delete_restore", `${order.buyer} / ${order.id}`);
       alert("주문을 삭제했어요.");
     } catch (error) {
@@ -4532,12 +4558,38 @@ ${text}`;
       <tr><td>${idx + 1}</td><td>${htmlSafe(it.name || "")}</td><td>${toInt(it.qty)}</td><td>${money(toInt(it.price) * toInt(it.qty))}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "Y" : "N"}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "0원" : money(toInt(it.price) * toInt(it.qty))}</td></tr>
     `).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>여깁니다유 정산서</title><style>
-      @page{size:A4;margin:12mm} body{font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00} .doc{position:relative;min-height:260mm;padding:12px} .wm{position:absolute;left:50%;top:43%;transform:translate(-50%,-50%);font-size:54px;font-weight:900;color:#4a3b00;opacity:.035;pointer-events:none;z-index:0;white-space:nowrap} .content{position:relative;z-index:1} h1{text-align:center;font-size:26px;margin:8px 0 14px}.info{width:100%;border-collapse:collapse;margin-bottom:12px}.info th{background:#fff2b3;width:18%}.info th,.info td{border:1px solid #d6c15c;padding:8px;text-align:left}.items{width:100%;border-collapse:collapse}.items th{background:#ffd84d}.items th,.items td{border:1px solid #d6c15c;padding:7px;text-align:center}.items td:nth-child(2){text-align:left}.sum{margin:18px auto 12px;width:330px;border:2px solid #d0aa00;background:#fff9e6}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:8px 12px}.sum div:last-child{border-bottom:none;background:#ffd84d;font-weight:900;font-size:18px}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:10px;margin-top:12px}.no-print{position:fixed;right:12px;top:12px}@media print{.no-print{display:none}}
-    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="doc"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th>No</th><th>상품명</th><th>수량</th><th>금액</th><th>선결제</th><th>실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(order.paySubtotal)}</b></div><div><span>배송비</span><b>${money(order.shipping)}</b></div><div><span>카드수수료 (${order.paymentMethod === "카드결제" ? session.cardFeeRate || 0 : 0}%)</span><b>${money(order.cardFee)}</b></div><div><span>포인트 차감</span><b>-${money(order.usedPoints || 0)}</b></div><div><span>최종 결제금액</span><b>${money(order.total)}</b></div></div><div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div></body></html>`;
+      @page{size:A4 portrait;margin:0}
+      html,body{margin:0;padding:0;background:#d7d7d7;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{min-height:100vh;padding:18px 0}
+      .doc{position:relative;width:210mm;min-height:297mm;margin:0 auto;background:#fff;box-sizing:border-box;padding:12mm;box-shadow:0 0 12px rgba(0,0,0,.22);overflow:hidden}
+      .wm{position:absolute;left:50%;top:47%;transform:translate(-50%,-50%);font-size:58px;font-weight:900;color:#4a3b00;opacity:.035;pointer-events:none;z-index:0;white-space:nowrap}
+      .content{position:relative;z-index:1}
+      h1{text-align:center;font-size:25px;margin:0 0 10mm;letter-spacing:-.5px}
+      .info{width:100%;border-collapse:collapse;margin-bottom:6mm;table-layout:fixed}
+      .info th{background:#fff2b3;width:18%;font-weight:800}.info th,.info td{border:1px solid #d6c15c;padding:2.4mm;text-align:left;font-size:11px;line-height:1.35;word-break:break-word}
+      .items{width:100%;border-collapse:collapse;table-layout:fixed;page-break-inside:auto}.items thead{display:table-header-group}.items tr{page-break-inside:avoid;page-break-after:auto}.items th{background:#ffd84d;font-weight:800}.items th,.items td{border:1px solid #d6c15c;padding:2.1mm;text-align:center;font-size:10.5px;line-height:1.3;vertical-align:middle}.items th:nth-child(1){width:9%}.items th:nth-child(2){width:43%}.items th:nth-child(3){width:10%}.items th:nth-child(4){width:15%}.items th:nth-child(5){width:10%}.items th:nth-child(6){width:13%}.items td:nth-child(2){text-align:left;white-space:normal;word-break:break-word}
+      .sum{margin:7mm 0 4mm auto;width:78mm;border:2px solid #d0aa00;background:#fff9e6;page-break-inside:avoid}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:2.2mm 3mm;font-size:12px}.sum div:last-child{border-bottom:none;background:#ffd84d;font-weight:900;font-size:16px}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:3mm;margin-top:4mm;font-size:11px;line-height:1.45;page-break-inside:avoid}.no-print{position:fixed;right:18px;top:18px;z-index:9999;height:34px;padding:6px 14px;background:#ffd84d;border:1px solid #d0aa00;font-weight:800;cursor:pointer}
+      @media print{html,body{background:#fff!important;padding:0!important}.doc{width:210mm;min-height:297mm;margin:0;box-shadow:none;page-break-after:always}.no-print{display:none!important}}
+    </style></head><body><button id="printBtn" class="no-print" type="button">PDF 저장/인쇄</button><div class="doc"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th>No</th><th>상품명</th><th>수량</th><th>금액</th><th>선결제</th><th>실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(order.paySubtotal)}</b></div><div><span>배송비</span><b>${money(order.shipping)}</b></div><div><span>카드수수료 (${order.paymentMethod === "카드결제" ? session.cardFeeRate || 0 : 0}%)</span><b>${money(order.cardFee)}</b></div><div><span>포인트 차감</span><b>-${money(order.usedPoints || 0)}</b></div><div><span>최종 결제금액</span><b>${money(order.total)}</b></div></div><div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div><script>
+      (function(){
+        function doPrint(){ try { window.focus(); window.print(); } catch(e) { alert('인쇄창을 열 수 없어요. 브라우저 팝업/인쇄 권한을 확인해줘.'); } }
+        var btn = document.getElementById('printBtn');
+        if (btn) btn.addEventListener('click', doPrint);
+        setTimeout(doPrint, 350);
+      })();
+    <\/script></body></html>`;
     const w = window.open("", "_blank");
     if (!w) return alert("팝업이 차단됐어요. 팝업 허용 후 다시 눌러줘.");
     w.document.write(html);
     w.document.close();
+    setTimeout(() => {
+      try {
+        w.focus();
+        w.print();
+      } catch (e) {
+        console.log("print failed", e);
+      }
+    }, 500);
   }
 
   function downloadLiveInvoiceExcel(order) {
