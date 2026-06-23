@@ -4256,7 +4256,7 @@ ${text}`;
         if (error) throw error;
       }
       for (const o of sessionOrders) {
-        if (toInt(o.usedPoints) > 0 || toInt(o.earnedPoints) > 0) await adjustMemberPointsByOrder(o, -toInt(o.usedPoints), -toInt(o.earnedPoints));
+        if (toInt(o.usedPoints) > 0 || toInt(o.earnedPoints) > 0) await adjustMemberPointsByOrder(o, -toInt(o.usedPoints), -orderEarnedPointsValue(o));
         await saveLiveOrderDb({ ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소", updatedAt: nowString(), usedPoints: 0 });
       }
       const { error: delError } = await supabase.from("live_sessions").delete().eq("id", selectedLiveSession.id);
@@ -4304,6 +4304,30 @@ ${text}`;
   function availableMemberPoints(member, sessionId = selectedLiveSessionId, exceptOrderId = editingLiveOrderId) {
     if (!member) return 0;
     return Math.max(0, toInt(member.points) - sameSessionEarnedPointsForMember(member, sessionId, exceptOrderId));
+  }
+
+  function orderEarnedPointsValue(order) {
+    const saved = toInt(order?.earnedPoints ?? order?.earned_points);
+    if (saved > 0) return saved;
+    const rate = Number(order?.pointRate ?? order?.point_rate ?? 0);
+    if (!rate) return 0;
+    const pay = toInt(order?.paySubtotal ?? order?.pay_subtotal);
+    const used = toInt(order?.usedPoints ?? order?.used_points);
+    return Math.floor(Math.max(0, pay - used) * rate / 100);
+  }
+
+  function matchingMemberRowsForOrder(rows, row) {
+    const key = row?.memberKey || makeMemberKey(row?.buyer || row?.name, row?.phone);
+    const name = String(row?.buyer || row?.name || "").trim();
+    const phone = onlyDigits(row?.phone);
+    const last4 = phoneLast4(row?.phone);
+    return (rows || []).filter((m) => {
+      const mk = makeMemberKey(m.name, m.phone);
+      const mPhone = onlyDigits(m.phone);
+      return (key && (mk === key || String(m.id) === String(key))) ||
+        (phone && mPhone === phone) ||
+        (name && last4 && String(m.name || "").trim() === name && phoneLast4(m.phone) === last4);
+    });
   }
 
   function loadMemberToOrder(member) {
@@ -4436,38 +4460,54 @@ ${text}`;
     const earn = toInt(deltaEarnedPoints);
     if (delta === 0 && earn === 0) return null;
 
-    // 포인트는 반드시 DB의 최신 회원 포인트 기준으로 보정한다.
-    // (React state가 오래되면 취소/수정 시 적립포인트가 남는 문제가 생김)
-    let member = findLiveMemberForOrderLike(row);
-    const key = row?.memberKey || makeMemberKey(row?.buyer || row?.name, row?.phone);
-
+    let dbRows = [];
     try {
       const { data } = await supabase.from("live_members").select("*");
-      const rows = (data || []).map(liveMemberFromDb);
-      const found = rows.find((m) => {
-        const mk = makeMemberKey(m.name, m.phone);
-        return (member?.id && String(m.id) === String(member.id)) ||
-          (key && (mk === key || String(m.id) === String(key))) ||
-          (row?.phone && onlyDigits(m.phone) === onlyDigits(row.phone) && String(m.name || "").trim() === String(row.buyer || row.name || "").trim());
-      });
-      if (found) member = found;
+      dbRows = (data || []).map(liveMemberFromDb);
     } catch (e) {
       console.warn("회원 최신 포인트 조회 실패, 현재 state 기준으로 보정합니다.", e);
+      dbRows = liveMembers;
     }
 
-    if (!member) return null;
+    let matches = matchingMemberRowsForOrder(dbRows, row);
+    if (matches.length === 0) {
+      const stateMatch = findLiveMemberForOrderLike(row);
+      if (stateMatch) matches = [stateMatch];
+    }
+    if (matches.length === 0) return null;
 
-    const before = toInt(member.points);
+    // 같은 회원이 DB에 중복 저장되어 있더라도 가장 최신/포인트가 큰 행을 기준으로 계산하고,
+    // 모든 중복 회원 행에 같은 포인트를 반영해 이후에 두 명처럼 보이거나 포인트가 남는 문제를 막는다.
+    const canonical = [...matches].sort((a, b) => {
+      const bt = new Date(b.updatedAt || 0).getTime() || 0;
+      const at = new Date(a.updatedAt || 0).getTime() || 0;
+      if (bt !== at) return bt - at;
+      return toInt(b.points) - toInt(a.points);
+    })[0];
+    const before = Math.max(...matches.map((m) => toInt(m.points)), toInt(canonical.points));
     const nextPoints = Math.max(0, before - delta + earn);
-    const next = {
-      ...member,
+    const nextRows = matches.map((m) => ({
+      ...m,
       updatedAt: nowString(),
       points: String(nextPoints),
-      usedPoints: Math.max(0, toInt(member.usedPoints) + delta),
-    };
-    await saveLiveMemberDb(next);
-    setLiveMembers((prev) => [next, ...prev.filter((m) => String(m.id) !== String(member.id))]);
-    return next;
+      usedPoints: Math.max(0, toInt(m.usedPoints) + delta),
+    }));
+
+    for (const next of nextRows) {
+      await saveLiveMemberDb(next);
+    }
+
+    setLiveMembers((prev) => {
+      const ids = new Set(nextRows.map((m) => String(m.id)));
+      const merged = [...nextRows, ...prev.filter((m) => !ids.has(String(m.id)))];
+      return dedupeLiveMembers(merged);
+    });
+
+    const key = makeMemberKey(canonical.name, canonical.phone);
+    if (makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone) === key) {
+      setLiveOrderForm((prev) => ({ ...prev, points: String(Math.max(0, nextPoints - sameSessionEarnedPointsForMember(canonical))) }));
+    }
+    return { ...canonical, points: String(nextPoints) };
   }
 
   function resetLiveOrderFormAfterSave() {
@@ -4657,7 +4697,7 @@ ${text}`;
         await saveLiveSessionDb(nextSession);
         setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
       }
-      if (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
+      if (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -orderEarnedPointsValue(order));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
       setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
@@ -4687,7 +4727,7 @@ ${text}`;
           setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
         }
       }
-      if (!order.canceledAt && (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0)) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
+      if (!order.canceledAt && (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0)) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -orderEarnedPointsValue(order));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
       setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
@@ -4908,10 +4948,20 @@ ${text}`;
     return { liveSales, liveProfit, liveOrderCount: livePaid.length, combinedSales: totalSales + liveSales, combinedProfit: totalProfit + liveProfit, combinedOrderCount: completedOrders.length + livePaid.length };
   }, [liveOrders, totalSales, totalProfit, completedOrders.length]);
 
+  function memberLastOrderTime(member) {
+    const key = makeMemberKey(member?.name, member?.phone);
+    const times = liveOrders
+      .filter((o) => makeMemberKey(o.buyer, o.phone) === key || String(o.memberKey || "") === key || String(o.memberKey || "") === String(member?.id || ""))
+      .map((o) => new Date(o.updatedAt || o.createdAt || o.liveDate || 0).getTime() || 0);
+    return Math.max(new Date(member?.updatedAt || 0).getTime() || 0, ...times, 0);
+  }
+
   const memberInfoFilteredMembers = useMemo(() => {
     const kw = memberInfoSearch.trim().toLowerCase();
-    return liveMembers.filter((m) => memberMatchesSearch(m, kw));
-  }, [liveMembers, memberInfoSearch]);
+    return dedupeLiveMembers(liveMembers)
+      .filter((m) => memberMatchesSearch(m, kw))
+      .sort((a, b) => memberLastOrderTime(b) - memberLastOrderTime(a));
+  }, [liveMembers, liveOrders, memberInfoSearch]);
 
   const selectedMemberInfo = useMemo(() => {
     return liveMembers.find((m) => String(m.id) === String(selectedMemberInfoId)) || null;
