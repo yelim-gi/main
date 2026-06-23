@@ -4254,10 +4254,27 @@ ${text}`;
     }
   }
 
+  function sameSessionEarnedPointsForMember(member, sessionId = selectedLiveSessionId, exceptOrderId = editingLiveOrderId) {
+    if (!member || !sessionId) return 0;
+    const key = makeMemberKey(member.name, member.phone);
+    return liveOrders
+      .filter((o) => !o.canceledAt && o.status !== "취소")
+      .filter((o) => String(o.sessionId) === String(sessionId))
+      .filter((o) => String(o.id) !== String(exceptOrderId || ""))
+      .filter((o) => makeMemberKey(o.buyer, o.phone) === key || (o.memberKey && o.memberKey === key) || (o.memberKey && String(o.memberKey) === String(member.id)))
+      .reduce((sum, o) => sum + toInt(o.earnedPoints), 0);
+  }
+
+  function availableMemberPoints(member, sessionId = selectedLiveSessionId, exceptOrderId = editingLiveOrderId) {
+    if (!member) return 0;
+    return Math.max(0, toInt(member.points) - sameSessionEarnedPointsForMember(member, sessionId, exceptOrderId));
+  }
+
   function loadMemberToOrder(member) {
     setSelectedLiveMemberId(member.id || "");
     setLiveMemberLookupSearch(`${member.name || ""} ${phoneLast4(member.phone)}`.trim());
-    setLiveOrderForm((prev) => ({ ...prev, buyer: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(member.points || "0"), usedPoints: 0, pointRate: String(member.pointRate || selectedLiveSession?.pointRate || "0"), memo: member.memo || prev.memo }));
+    const availablePoints = availableMemberPoints(member);
+    setLiveOrderForm((prev) => ({ ...prev, buyer: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(availablePoints || "0"), usedPoints: 0, pointRate: String(member.pointRate || selectedLiveSession?.pointRate || "0"), memo: member.memo || prev.memo }));
     setLiveMemberForm({ name: member.name || "", phone: member.phone || "", postalCode: member.postalCode || "", baseAddress: member.baseAddress || "", detailAddress: member.detailAddress || "", address: member.address || "", points: String(member.points || 0), pointRate: String(member.pointRate || "0"), memo: member.memo || "" });
   }
 
@@ -4303,10 +4320,15 @@ ${text}`;
     const paySubtotal = liveCart.reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum : sum + toInt(it.price) * toInt(it.qty), 0);
     const shipping = liveOrderForm.shippingApply && subtotal > 0 ? toInt(selectedLiveSession?.shippingFee || 0) : 0;
     const cardFee = liveOrderForm.paymentMethod === "카드결제" && paySubtotal > 0 ? Math.round((paySubtotal + shipping) * Number(selectedLiveSession?.cardFeeRate || 0) / 100) : 0;
-    const usedPoints = Math.min(toInt(liveOrderForm.usedPoints), paySubtotal + shipping + cardFee);
+    const usedPoints = Math.min(toInt(liveOrderForm.usedPoints), toInt(liveOrderForm.points), paySubtotal + shipping + cardFee);
     const pointRate = Number(liveOrderForm.pointRate || selectedLiveSession?.pointRate || 0);
     const earnedPoints = Math.floor(Math.max(0, paySubtotal - usedPoints) * pointRate / 100);
-    const pointBalanceAfter = Math.max(0, toInt(liveOrderForm.points) - usedPoints + earnedPoints);
+    const editingOrder = editingLiveOrderId ? liveOrders.find((o) => String(o.id) === String(editingLiveOrderId)) : null;
+    const member = selectedLiveMemberId ? liveMembers.find((m) => String(m.id) === String(selectedLiveMemberId)) : liveMembers.find((m) => makeMemberKey(m.name, m.phone) === makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone));
+    const totalBeforeSave = member?.id ? toInt(member.points) : toInt(liveOrderForm.points);
+    const pointBalanceAfter = editingOrder
+      ? Math.max(0, totalBeforeSave - (usedPoints - toInt(editingOrder.usedPoints)) + (earnedPoints - toInt(editingOrder.earnedPoints)))
+      : Math.max(0, totalBeforeSave - usedPoints + earnedPoints);
     return { subtotal, paySubtotal, shipping, cardFee, usedPoints, earnedPoints, pointRate, pointBalanceAfter, total: Math.max(0, paySubtotal + shipping + cardFee - usedPoints) };
   }
 
@@ -4325,7 +4347,7 @@ ${text}`;
       baseAddress: liveOrderForm.baseAddress || "",
       detailAddress: liveOrderForm.detailAddress || "",
       address: orderAddressOf(liveOrderForm),
-      points: String(Math.max(0, toInt(liveOrderForm.points) - delta + earn)),
+      points: String(Math.max(0, (existing?.id ? toInt(existing.points) : toInt(liveOrderForm.points)) - delta + earn)),
       usedPoints: Math.max(0, toInt(existing.usedPoints) + delta),
       pointRate: String(liveOrderForm.pointRate || existing.pointRate || selectedLiveSession?.pointRate || "0"),
       memo: liveOrderForm.memo || existing.memo || "",
@@ -4340,7 +4362,7 @@ ${text}`;
     await saveLiveMemberDb(row);
     setSelectedLiveMemberId(row.id);
     setLiveMembers((prev) => [row, ...prev.filter((m) => String(m.id) !== String(row.id))]);
-    setLiveOrderForm((prev) => ({ ...prev, points: String(row.points || "0") }));
+    setLiveOrderForm((prev) => ({ ...prev, points: String(availableMemberPoints(row)) }));
     if (showAlert) alert("회원 정보가 저장됐어요.");
     return row;
   }
@@ -4408,7 +4430,7 @@ ${text}`;
       boxVolume: order.boxVolume || "60",
       household: order.household || "생활용품",
       deliveryMessage: order.deliveryMessage || "",
-      points: String(toInt(member?.points) + toInt(order.usedPoints || 0)),
+      points: String(member ? Math.max(0, toInt(member.points) + toInt(order.usedPoints || 0) - sameSessionEarnedPointsForMember(member, order.sessionId, order.id) - toInt(order.earnedPoints || 0)) : Math.max(0, toInt(order.memberPointsBefore || 0))),
       usedPoints: toInt(order.usedPoints || 0),
       pointRate: String(order.pointRate || selectedLiveSession?.pointRate || "0"),
       earnedPoints: toInt(order.earnedPoints || 0),
@@ -4971,9 +4993,9 @@ ${text}`;
             <h2>3. 주문서 작성 {editingLiveOrderId ? "(수정중)" : ""}</h2>
             <div className="filterRow liveMemberLookupRow">
               <label>회원검색</label><input className="wideInput" value={liveMemberLookupSearch} onChange={(e) => setLiveMemberLookupSearch(e.target.value)} placeholder="이름/전화번호/뒷4자리 검색" />
-              {liveMemberLookupSearch && liveMemberLookupResults.length > 0 && <select value="" onChange={(e) => { const m = liveMembers.find((x) => String(x.id) === e.target.value); if (m) loadMemberToOrder(m); }}>
-                <option value="">검색 결과 선택</option>{liveMemberLookupResults.map((m) => <option key={m.id} value={m.id}>{m.name} / {phoneLast4(m.phone)} / {toInt(m.points).toLocaleString()}P</option>)}
-              </select>}
+              <label>저장회원</label><select value={selectedLiveMemberId || ""} onChange={(e) => { const m = liveMembers.find((x) => String(x.id) === e.target.value); if (m) loadMemberToOrder(m); else { setSelectedLiveMemberId(""); } }}>
+                <option value="">저장회원 불러오기</option>{(liveMemberLookupSearch ? liveMemberLookupResults : liveMembers).slice(0, 100).map((m) => <option key={m.id} value={m.id}>{m.name} / {phoneLast4(m.phone)} / 사용가능 {availableMemberPoints(m).toLocaleString()}P / 총 {toInt(m.points).toLocaleString()}P</option>)}
+              </select>
             </div>
             <div className="filterRow">
               <label>고객명</label><input value={liveOrderForm.buyer} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, buyer: e.target.value })} />
@@ -4981,7 +5003,7 @@ ${text}`;
               <label>보유P</label><input value={liveOrderForm.points} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, points: e.target.value, usedPoints: 0 })} />
               <label>적립%</label><input className="tinyInput" value={liveOrderForm.pointRate ?? selectedLiveSession?.pointRate ?? "0"} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, pointRate: e.target.value })} />
               <button type="button" onClick={useAllMemberPoints}>포인트 전액사용</button>
-              <span className="statusLine">사용: {money(liveOrderForm.usedPoints || 0)} | 적립예정: {summary.earnedPoints.toLocaleString()}P | 저장 후 내 포인트: {summary.pointBalanceAfter.toLocaleString()}P</span>
+              <span className="statusLine">사용가능P 기준 / 사용: {money(liveOrderForm.usedPoints || 0)} | 적립예정: {summary.earnedPoints.toLocaleString()}P | 저장 후 내 포인트: {summary.pointBalanceAfter.toLocaleString()}P</span>
               <button type="button" onClick={() => saveMemberFromOrderForm(true)}>회원저장</button>
               <label>결제</label><select value={liveOrderForm.paymentMethod} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, paymentMethod: e.target.value })}><option>계좌이체</option><option>카드결제</option></select>
             </div>
@@ -5027,15 +5049,6 @@ ${text}`;
           <div className="filterRow"><label>고객명</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>전화번호</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>보유P</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><label>기본적립%</label><input className="tinyInput" value={liveMemberForm.pointRate} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, pointRate: e.target.value })} /></div>
           <div className="filterRow"><label>우편번호</label><input value={liveMemberForm.postalCode} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, postalCode: e.target.value })} /><button type="button" onClick={() => openDaumPostcode("member")}>우편번호 검색</button><label>기본주소</label><input className="wideInput" value={liveMemberForm.baseAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, baseAddress: e.target.value, address: [e.target.value, liveMemberForm.detailAddress].filter(Boolean).join(" ") })} /><label>상세주소</label><input className="wideInput" value={liveMemberForm.detailAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, detailAddress: e.target.value, address: [liveMemberForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /></div>
           <div className="filterRow"><label>메모</label><input className="wideInput" value={liveMemberForm.memo} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, memo: e.target.value })} /><button type="button" onClick={saveMemberInfoFormAndSync}>회원정보 저장/주문반영</button>{selectedMemberInfo && <button className="deleteBtn" type="button" onClick={() => deleteLiveMember(selectedMemberInfo)}>회원 삭제</button>}</div>
-        </div>
-
-        <div className="panel">
-          <h2>회원 목록 / 수정·삭제</h2>
-          <p className="statusLine">검색된 회원을 바로 불러오거나 삭제할 수 있어요. 회원을 삭제해도 기존 주문기록은 유지됩니다.</p>
-          <div className="tableWrap memberListTable"><table><thead><tr><th>고객명</th><th>전화번호</th><th>보유P</th><th>기본적립%</th><th>주소</th><th>메모</th><th>관리</th></tr></thead><tbody>
-            {memberInfoFilteredMembers.map((m) => <tr key={m.id} className={String(selectedMemberInfo?.id || "") === String(m.id) ? "selectedRow" : ""}><td>{m.name}</td><td>{m.phone}</td><td>{toInt(m.points).toLocaleString()}P</td><td>{m.pointRate || 0}%</td><td title={m.address}>{m.postalCode ? `(${m.postalCode}) ` : ""}{m.address}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={() => loadMemberInfoToForm(m)}>수정/주문보기</button><button className="deleteBtn" type="button" onClick={() => deleteLiveMember(m)}>삭제</button></td></tr>)}
-            {memberInfoFilteredMembers.length === 0 && <tr><td colSpan="7" className="empty">검색된 회원이 없어요.</td></tr>}
-          </tbody></table></div>
         </div>
 
         <div className="panel">
