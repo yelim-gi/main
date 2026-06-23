@@ -4190,13 +4190,13 @@ ${text}`;
       const exists = (session.products || []).find((x) => String(x.productId) === String(product.id));
       if (exists) {
         nextProducts = (session.products || []).map((x) => String(x.productId) === String(product.id)
-          ? { ...x, liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
+          ? { ...x, stockMode: "no_deduct", liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
           : x);
       } else {
         const item = {
           id: makeLiveId("liveitem"), productId: product.id, name: product.name, originalName: product.name, char1: product.char1, char2: product.char2,
           category: product.category, wholesale: toInt(product.wholesale), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
-          liveQty: "1", remainingQty: "1", memo: ""
+          liveQty: "1", remainingQty: "1", stockMode: "no_deduct", memo: ""
         };
         nextProducts = [item, ...(session.products || [])];
       }
@@ -4284,6 +4284,52 @@ ${text}`;
   }
 
 
+
+  async function restoreLegacyLiveReservedStockForSelectedSession() {
+    if (!selectedLiveSession) return alert("복구할 라방을 선택해줘.");
+    const legacyItems = (selectedLiveSession.products || []).filter(liveItemNeedsLegacyStockRestore);
+    if (legacyItems.length === 0) return alert("복구할 구버전 라방 예약재고가 없어요. 현재 라방 상품은 본재고를 차감하지 않는 방식이에요.");
+
+    const restoreByProduct = {};
+    const nextProducts = (selectedLiveSession.products || []).map((it) => {
+      if (!liveItemNeedsLegacyStockRestore(it)) return it;
+      const qty = toInt(it.remainingQty) + activeUnpaidQtyForLiveItem(selectedLiveSession.id, it.id, it.productId);
+      if (qty > 0 && it.productId) {
+        const key = String(it.productId);
+        restoreByProduct[key] = (restoreByProduct[key] || 0) + qty;
+      }
+      return { ...it, stockMode: "no_deduct", legacyStockRestoredAt: nowString() };
+    });
+
+    const total = Object.values(restoreByProduct).reduce((s, v) => s + toInt(v), 0);
+    if (total <= 0) {
+      const nextSession = { ...selectedLiveSession, products: nextProducts };
+      await saveLiveSessionDb(nextSession);
+      setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
+      return alert("복구할 수량은 없지만, 현재 라방 상품을 새 재고 방식으로 표시했어요.");
+    }
+
+    const ok = window.confirm(`구버전에서 라방 추가 때문에 빠져있던 예약재고 ${total.toLocaleString()}개를 본재고로 되돌릴까요?\n\n입금확인/송장입력/출고완료 등 이미 판매 확정된 수량은 복구하지 않고, 미입금/미판매 예약분만 복구합니다.`);
+    if (!ok) return;
+
+    try {
+      for (const [productId, qty] of Object.entries(restoreByProduct)) {
+        const latest = products.find((p) => String(p.id) === String(productId));
+        const nextStock = toInt(latest?.stock) + toInt(qty);
+        const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", productId);
+        if (error) throw error;
+      }
+      const nextSession = { ...selectedLiveSession, products: nextProducts };
+      await saveLiveSessionDb(nextSession);
+      setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
+      await getProducts();
+      alert(`라방 예약재고 ${total.toLocaleString()}개를 본재고로 복구했어요. 이제 라방에 상품을 올려도 수동박스/재고관리 재고는 입금확인 전까지 줄지 않아요.`);
+    } catch (error) {
+      alert("라방 예약재고 복구 실패: " + String(error.message || error));
+      await Promise.all([getProducts(), getLiveSessions()]);
+    }
+  }
+
   async function deleteLiveSessionWithRestore() {
     if (!selectedLiveSession) return alert("삭제할 라방을 선택해줘.");
     const sessionOrders = liveOrders.filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt);
@@ -4354,6 +4400,31 @@ ${text}`;
     const used = toInt(order?.usedPoints ?? order?.used_points);
     return Math.floor(Math.max(0, pay - used) * rate / 100);
   }
+
+  const LIVE_PAID_STATUSES = ["입금확인", "정산후킵", "입금후킵", "입금후합배송", "송장입력", "출고완료"];
+
+  function isPaidLiveStatus(status) {
+    return LIVE_PAID_STATUSES.includes(String(status || ""));
+  }
+
+  function liveItemNeedsLegacyStockRestore(item) {
+    return item && String(item.stockMode || "legacy_deducted") !== "no_deduct";
+  }
+
+  function activeUnpaidQtyForLiveItem(sessionId, liveItemId, productId) {
+    return liveOrders
+      .filter((o) => String(o.sessionId) === String(sessionId))
+      .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
+      .filter((o) => !isPaidLiveStatus(o.status))
+      .reduce((sum, o) => {
+        return sum + (o.items || []).reduce((itemSum, it) => {
+          const sameLiveItem = liveItemId && String(it.liveItemId || "") === String(liveItemId);
+          const sameProduct = productId && String(it.productId || "") === String(productId);
+          return itemSum + (sameLiveItem || sameProduct ? toInt(it.qty) : 0);
+        }, 0);
+      }, 0);
+  }
+
 
   function matchingMemberRowsForOrder(rows, row) {
     const key = row?.memberKey || makeMemberKey(row?.buyer || row?.name, row?.phone);
@@ -4712,15 +4783,23 @@ ${text}`;
     if (!current) return;
     if (current.locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) return alert("구매확정 잠금된 주문이에요. 수정하려면 잠금해제 해줘.");
     let next = { ...current, ...patch, updatedAt: nowString() };
-    const statusChangingToPaid = Object.prototype.hasOwnProperty.call(patch, "status") && patch.status === "입금확인" && !current.deducted;
-    if (statusChangingToPaid) {
+    const hasStatusPatch = Object.prototype.hasOwnProperty.call(patch, "status");
+    const nextIsPaid = hasStatusPatch ? isPaidLiveStatus(patch.status) : !!current.deducted;
+    const shouldDeductStock = hasStatusPatch && nextIsPaid && !current.deducted;
+    const shouldRestoreStock = hasStatusPatch && !nextIsPaid && current.deducted;
+
+    if (shouldDeductStock) {
       next = { ...next, deducted: true, paidAt: nowString() };
     }
-    if (Object.prototype.hasOwnProperty.call(patch, "status") && ["정산후킵", "입금후킵", "입금후합배송"].includes(patch.status)) {
+    if (shouldRestoreStock) {
+      next = { ...next, deducted: false, paidAt: "" };
+    }
+    if (hasStatusPatch && ["정산후킵", "입금후킵", "입금후합배송"].includes(patch.status)) {
       next = { ...next, trackingNo: "" };
     }
     try {
-      if (statusChangingToPaid) await adjustProductStockForPaidOrder(current, -1);
+      if (shouldDeductStock) await adjustProductStockForPaidOrder(current, -1);
+      if (shouldRestoreStock) await adjustProductStockForPaidOrder(current, +1);
       await saveLiveOrderDb(next);
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
     } catch (error) {
@@ -5157,7 +5236,7 @@ ${text}`;
               <div><span>미입금</span><b>{money(sales.unpaid)}</b></div>
               <div><span>킵 D-2/출고필요</span><b>{sales.keepDue.toLocaleString()}건</b></div>
             </div>
-            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 재고 원복</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제/재고복구</button></div>
+            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={restoreLegacyLiveReservedStockForSelectedSession}>구버전 라방예약 재고복구</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 정리</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제</button></div>
           </>}
         </div>
 
@@ -5172,7 +5251,7 @@ ${text}`;
           </div>
           <div className="panel liveProductPanel">
             <h2>2. 라방 상품 등록</h2>
-            <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
+            <p className="statusLine">라방추가/주문저장만으로는 본재고가 줄지 않아요. 주문 상태를 입금확인/송장입력/출고완료 등으로 저장할 때만 본재고가 차감돼요.</p>
             <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" className="liveOpenBigProductBtn" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
             <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
               {liveFilteredProducts.map((p) => { const liveAdded = isProductAddedToCurrentLive(p.id); const addedInfo = liveAddedProductMap.get(String(p.id)); return <tr key={p.id} className={liveAdded ? "liveAlreadyAddedRow" : ""}><td title={p.name}>{p.name}{liveAdded && <span className="liveAddedBadge">추가됨 {toInt(addedInfo?.remaining).toLocaleString()}개</span>}</td><td title={p.char1 || ""}>{p.char1 || "-"}</td><td title={p.char2 || ""}>{p.char2 || "-"}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>; })}
