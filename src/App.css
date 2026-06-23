@@ -4464,3 +4464,99 @@ input.liveNameInput {
 .liveProductBigSelected td:nth-child(7),
 .liveProductBigSelected th:nth-child(8),
 .liveProductBigSelected td:nth-child(8) { width: 54px !important; min-width: 54px !important; max-width: 54px !important; }
+
+/* v138: 재고관리 검색결과 테이블을 화면 아래까지 채우고 내부 스크롤 */
+.inventoryPageFixed {
+  height: calc(100vh - 92px) !important;
+  min-height: calc(100vh - 92px) !important;
+  max-height: calc(100vh - 92px) !important;
+  overflow: hidden !important;
+}
+.inventoryListPanel {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.inventoryResultArea {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.inventoryResultArea .productResultFixedRows,
+.inventoryResultArea .tableWrap {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+}
+.inventoryResultArea .productTable {
+  margin-bottom: 0 !important;
+}
+@media (max-width: 900px) {
+  .inventoryPageFixed {
+    height: calc(100vh - 88px) !important;
+    min-height: calc(100vh - 88px) !important;
+    max-height: calc(100vh - 88px) !important;
+  }
+}
+
+/* v139: 재고관리 결과표가 화면 아래까지 채워지도록 최종 보정 */
+.inventoryListPanel {
+  display: flex !important;
+  flex-direction: column !important;
+  height: calc(100vh - 245px) !important;
+  min-height: 560px !important;
+  max-height: calc(100vh - 245px) !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+.inventoryListPanel > .filterRow,
+.inventoryListPanel > .checkLine,
+.inventoryListPanel > .statusLine,
+.inventoryListPanel > .inventorySelectedPanel,
+.inventoryListPanel > .v54BulkEditPanel,
+.inventoryListPanel > .v53EditProductPanel {
+  flex: 0 0 auto !important;
+}
+.inventoryListPanel .inventorySelectedPanel,
+.inventoryListPanel .v54BulkEditPanel {
+  max-height: 82px !important;
+  overflow: auto !important;
+}
+.inventoryListPanel .inventoryResultArea {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  margin: 6px 0 0 0 !important;
+}
+.inventoryListPanel .inventoryResultArea .productResultFixedRows,
+.inventoryListPanel .inventoryResultArea .tableWrap {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+}
+.inventoryListPanel .inventoryResultArea .productTable {
+  margin-bottom: 0 !important;
+}
+@media (max-width: 900px) {
+  .inventoryListPanel {
+    height: calc(100vh - 230px) !important;
+    min-height: 420px !important;
+    max-height: calc(100vh - 230px) !important;
+  }
+}
