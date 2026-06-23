@@ -239,17 +239,3 @@ alter table live_orders add column if not exists point_note text;
 -- v118 member info / points refinements
 alter table live_members add column if not exists point_rate text default '0';
 alter table live_orders add column if not exists combined_group_id text;
-
--- v120 stability columns for live/member workflow
-alter table live_members add column if not exists point_rate text default '0';
-alter table live_members add column if not exists used_points integer default 0;
-alter table live_orders add column if not exists used_points integer default 0;
-alter table live_orders add column if not exists earned_points integer default 0;
-alter table live_orders add column if not exists point_rate text default '0';
-alter table live_orders add column if not exists point_balance_after integer default 0;
-alter table live_orders add column if not exists point_note text;
-alter table live_orders add column if not exists combined_group_id text;
-alter table live_sessions add column if not exists keep_mode text default '기간형';
-alter table live_sessions add column if not exists keep_count text default '1';
-alter table live_sessions add column if not exists point_rate text default '0';
-alter table live_sessions add column if not exists point_note text;

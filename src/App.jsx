@@ -3925,14 +3925,6 @@ ${text}`;
     if (error) throw error;
   }
 
-  async function saveLiveSessionProductsOnly(sessionId, productsPayload) {
-    const { error } = await supabase
-      .from("live_sessions")
-      .update({ products: productsPayload || [] })
-      .eq("id", sessionId);
-    if (error) throw error;
-  }
-
   function preserveLiveScroll(callback) {
     const selectors = [".liveProductSourceTable", ".liveSelectedTable", ".liveOrdersTable"];
     const positions = selectors.map((sel) => {
@@ -4091,57 +4083,41 @@ ${text}`;
 
   async function addProductToLive(product) {
     if (!selectedLiveSession) return alert("먼저 라방을 생성하거나 선택해줘.");
-    if (!product?.id) return alert("상품 정보가 올바르지 않아요.");
-
-    const sessionId = selectedLiveSession.id;
-    const currentProduct = products.find((p) => String(p.id) === String(product.id)) || product;
-    if (toInt(currentProduct.stock) <= 0) return alert("본재고가 부족해요.");
-
-    const baseProducts = Array.isArray(selectedLiveSession.products) ? selectedLiveSession.products : [];
-    let nextProducts = [];
-    const exists = baseProducts.find((x) => String(x.productId) === String(product.id));
-    if (exists) {
-      nextProducts = baseProducts.map((x) => String(x.productId) === String(product.id)
-        ? { ...x, liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
-        : x);
-    } else {
-      const item = {
-        id: makeLiveId("liveitem"),
-        productId: product.id,
-        name: product.name || "",
-        char1: product.char1 || "",
-        char2: product.char2 || "",
-        category: product.category || "",
-        wholesale: toInt(product.wholesale),
-        retail: toInt(product.retail),
-        livePrice: toInt(product.retail),
-        discountRate: "0",
-        liveQty: "1",
-        remainingQty: "1",
-        memo: ""
-      };
-      nextProducts = [item, ...baseProducts];
-    }
-
-    const nextSession = { ...selectedLiveSession, products: nextProducts };
+    if (toInt(product.stock) <= 0) return alert("본재고가 부족해요.");
+    const session = selectedLiveSession;
     try {
-      // 라방 상품 추가는 products JSON만 업데이트해서 최신 컬럼 누락/스키마 캐시 문제에 덜 흔들리게 처리
-      await saveLiveSessionProductsOnly(sessionId, nextProducts);
-
-      const nextStock = toInt(currentProduct.stock) - 1;
+      const current = products.find((p) => String(p.id) === String(product.id)) || product;
+      if (toInt(current.stock) <= 0) return alert("본재고가 부족해요.");
+      const nextStock = toInt(current.stock) - 1;
       const { error: stockError } = await supabase.from("products").update({ stock: nextStock }).eq("id", product.id);
-      if (stockError) {
-        // 재고 차감 실패 시 라방 상품 추가도 되돌림
-        await saveLiveSessionProductsOnly(sessionId, baseProducts);
-        throw stockError;
-      }
+      if (stockError) throw stockError;
 
-      preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(sessionId) ? nextSession : s)));
-      setProducts((prev) => prev.map((p) => String(p.id) === String(product.id) ? { ...p, stock: nextStock } : p));
-      await Promise.all([getProducts(), getLiveSessions()]);
+      let nextProducts = [];
+      const exists = (session.products || []).find((x) => String(x.productId) === String(product.id));
+      if (exists) {
+        nextProducts = (session.products || []).map((x) => String(x.productId) === String(product.id)
+          ? { ...x, liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
+          : x);
+      } else {
+        const item = {
+          id: makeLiveId("liveitem"), productId: product.id, name: product.name, char1: product.char1, char2: product.char2,
+          category: product.category, wholesale: toInt(product.wholesale), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
+          liveQty: "1", remainingQty: "1", memo: ""
+        };
+        nextProducts = [item, ...(session.products || [])];
+      }
+      const nextSession = { ...session, products: nextProducts };
+      await saveLiveSessionDb(nextSession);
+      preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s)));
+      await getProducts();
     } catch (error) {
-      alert("라방 상품 추가 실패: " + (error?.message || String(error)) + "\n\nSupabase SQL 실행 후에도 계속 실패하면 화면 캡처와 함께 알려줘.");
-      await Promise.all([getProducts(), getLiveSessions()]);
+      try {
+        const current = products.find((p) => String(p.id) === String(product.id)) || product;
+        await supabase.from("products").update({ stock: toInt(current.stock) }).eq("id", product.id);
+      } catch {}
+      alert("라방 상품 추가 실패: " + (error?.message || String(error)) + "\n\nSupabase SQL을 아직 최신으로 실행하지 않았다면 supabase_setup.sql 전체를 다시 실행해줘.");
+      await getProducts();
+      await getLiveSessions();
     }
   }
 
@@ -4152,7 +4128,7 @@ ${text}`;
       products: (selectedLiveSession.products || []).map((it) => String(it.id) === String(itemId) ? { ...it, ...patch } : it)
     };
     try {
-      await saveLiveSessionProductsOnly(nextSession.id, nextSession.products);
+      await saveLiveSessionDb(nextSession);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s)));
     } catch (error) {
       alert("라방 상품 수정 실패: " + error.message);
@@ -4219,7 +4195,7 @@ ${text}`;
       const { error: stockError } = await supabase.from("products").update({ stock: toInt(current?.stock) + toInt(target.liveQty) }).eq("id", target.productId);
       if (stockError) throw stockError;
       const nextSession = { ...selectedLiveSession, products: (selectedLiveSession.products || []).filter((it) => String(it.id) !== String(itemId)) };
-      await saveLiveSessionProductsOnly(nextSession.id, nextSession.products);
+      await saveLiveSessionDb(nextSession);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
       await getProducts();
     } catch (error) {
@@ -4527,7 +4503,7 @@ ${text}`;
           return oldReserved || nextReserved ? { ...li, remainingQty: String(nextRemaining) } : li;
         })
       };
-      await saveLiveSessionProductsOnly(nextSession.id, nextSession.products);
+      await saveLiveSessionDb(nextSession);
 
       const memberKey = makeMemberKey(liveOrderForm.buyer, liveOrderForm.phone);
       const order = {
@@ -4583,7 +4559,7 @@ ${text}`;
           ...session,
           products: restoreSessionProductsByOrder(session, order).products
         };
-        await saveLiveSessionProductsOnly(nextSession.id, nextSession.products);
+        await saveLiveSessionDb(nextSession);
         setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
       }
       if (toInt(order.usedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
@@ -4612,7 +4588,7 @@ ${text}`;
             ...session,
             products: restoreSessionProductsByOrder(session, order).products
           };
-          await saveLiveSessionProductsOnly(nextSession.id, nextSession.products);
+          await saveLiveSessionDb(nextSession);
           setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
         }
       }
@@ -5051,6 +5027,15 @@ ${text}`;
           <div className="filterRow"><label>고객명</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>전화번호</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>보유P</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><label>기본적립%</label><input className="tinyInput" value={liveMemberForm.pointRate} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, pointRate: e.target.value })} /></div>
           <div className="filterRow"><label>우편번호</label><input value={liveMemberForm.postalCode} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, postalCode: e.target.value })} /><button type="button" onClick={() => openDaumPostcode("member")}>우편번호 검색</button><label>기본주소</label><input className="wideInput" value={liveMemberForm.baseAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, baseAddress: e.target.value, address: [e.target.value, liveMemberForm.detailAddress].filter(Boolean).join(" ") })} /><label>상세주소</label><input className="wideInput" value={liveMemberForm.detailAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, detailAddress: e.target.value, address: [liveMemberForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /></div>
           <div className="filterRow"><label>메모</label><input className="wideInput" value={liveMemberForm.memo} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, memo: e.target.value })} /><button type="button" onClick={saveMemberInfoFormAndSync}>회원정보 저장/주문반영</button>{selectedMemberInfo && <button className="deleteBtn" type="button" onClick={() => deleteLiveMember(selectedMemberInfo)}>회원 삭제</button>}</div>
+        </div>
+
+        <div className="panel">
+          <h2>회원 목록 / 수정·삭제</h2>
+          <p className="statusLine">검색된 회원을 바로 불러오거나 삭제할 수 있어요. 회원을 삭제해도 기존 주문기록은 유지됩니다.</p>
+          <div className="tableWrap memberListTable"><table><thead><tr><th>고객명</th><th>전화번호</th><th>보유P</th><th>기본적립%</th><th>주소</th><th>메모</th><th>관리</th></tr></thead><tbody>
+            {memberInfoFilteredMembers.map((m) => <tr key={m.id} className={String(selectedMemberInfo?.id || "") === String(m.id) ? "selectedRow" : ""}><td>{m.name}</td><td>{m.phone}</td><td>{toInt(m.points).toLocaleString()}P</td><td>{m.pointRate || 0}%</td><td title={m.address}>{m.postalCode ? `(${m.postalCode}) ` : ""}{m.address}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={() => loadMemberInfoToForm(m)}>수정/주문보기</button><button className="deleteBtn" type="button" onClick={() => deleteLiveMember(m)}>삭제</button></td></tr>)}
+            {memberInfoFilteredMembers.length === 0 && <tr><td colSpan="7" className="empty">검색된 회원이 없어요.</td></tr>}
+          </tbody></table></div>
         </div>
 
         <div className="panel">
