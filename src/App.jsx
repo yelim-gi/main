@@ -4135,7 +4135,7 @@ ${text}`;
           : x);
       } else {
         const item = {
-          id: makeLiveId("liveitem"), productId: product.id, name: product.name, char1: product.char1, char2: product.char2,
+          id: makeLiveId("liveitem"), productId: product.id, name: product.name, originalName: product.name, char1: product.char1, char2: product.char2,
           category: product.category, wholesale: toInt(product.wholesale), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
           liveQty: "1", remainingQty: "1", memo: ""
         };
@@ -5140,14 +5140,14 @@ ${text}`;
             <h2>2. 라방 상품 등록</h2>
             <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
             <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" className="liveOpenBigProductBtn" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
-            <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>본재고</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
-              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.retail)}</td><td><button onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
-              {liveFilteredProducts.length === 0 && <tr><td colSpan="4" className="empty">상품이 없어요.</td></tr>}
+            <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
+              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
+              {liveFilteredProducts.length === 0 && <tr><td colSpan="5" className="empty">상품이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>라방용 상품 목록</h3>
-            <div className="tableWrap liveSelectedTable"><table><thead><tr><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>정가</th><th>할인율</th><th>라방가</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-              {selectedLiveProducts.map((it) => <tr key={it.id}><td title={it.name}>{it.name}</td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td><button onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
-              {selectedLiveProducts.length === 0 && <tr><td colSpan="10" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
+            <div className="tableWrap liveSelectedTable"><table><thead><tr><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>도매가</th><th>정가</th><th>할인율</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
+              {selectedLiveProducts.map((it) => <tr key={it.id}><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+              {selectedLiveProducts.length === 0 && <tr><td colSpan="11" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
             </tbody></table></div>
           </div>
 
@@ -5157,13 +5157,13 @@ ${text}`;
                 <div className="modalTitle"><strong>라방 상품추가 크게보기</strong><button type="button" onClick={() => setLiveProductModalOpen(false)}>닫기</button></div>
                 <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><span className="statusLine">조회 {liveFilteredProducts.length.toLocaleString()}개</span></div>
                 <div className="tableWrap liveProductBigTable compactRows"><table><thead><tr><th>ID</th><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>카테고리</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
-                  {liveFilteredProducts.map((p) => <tr key={p.id}><td>{p.id}</td><td title={p.name}>{p.name}</td><td>{p.char1}</td><td>{p.char2}</td><td>{p.category}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td><button type="button" onClick={() => addProductToLive(p)}>추가</button></td></tr>)}
+                  {liveFilteredProducts.map((p) => <tr key={p.id}><td>{p.id}</td><td title={p.name}>{p.name}</td><td>{p.char1}</td><td>{p.char2}</td><td>{p.category}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>추가</button></td></tr>)}
                   {liveFilteredProducts.length === 0 && <tr><td colSpan="10" className="empty">상품이 없어요.</td></tr>}
                 </tbody></table></div>
                 <h3>현재 라방용 상품</h3>
-                <div className="tableWrap liveProductBigSelected compactRows"><table><thead><tr><th>상품명</th><th>배정</th><th>남음</th><th>라방가</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-                  {selectedLiveProducts.map((it) => <tr key={it.id}><td title={it.name}>{it.name}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td><button onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
-                  {selectedLiveProducts.length === 0 && <tr><td colSpan="6" className="empty">라방에 올릴 상품이 없어요.</td></tr>}
+                <div className="tableWrap liveProductBigSelected compactRows"><table><thead><tr><th>상품명</th><th>배정</th><th>남음</th><th>도매가</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
+                  {selectedLiveProducts.map((it) => <tr key={it.id}><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+                  {selectedLiveProducts.length === 0 && <tr><td colSpan="8" className="empty">라방에 올릴 상품이 없어요.</td></tr>}
                 </tbody></table></div>
               </div>
             </div>, document.body)}

@@ -4106,3 +4106,66 @@ body:has(.fixedCharacterModalOverlay) {
   height: 22px !important;
   padding: 1px 5px !important;
 }
+
+
+/* v131: 라방 상품 버튼 겹침 방지 + 라방용 상품명만 수정 */
+.liveProductSourceTable th:last-child,
+.liveProductSourceTable td:last-child,
+.liveProductBigTable th:last-child,
+.liveProductBigTable td:last-child {
+  width: 86px !important;
+  min-width: 86px !important;
+  max-width: 86px !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  overflow: visible !important;
+  padding: 2px 4px !important;
+}
+.liveActionCell {
+  text-align: center !important;
+  vertical-align: middle !important;
+  overflow: visible !important;
+  position: static !important;
+}
+.liveAddBtn,
+.liveProductSourceTable td:last-child button,
+.liveProductBigTable td:last-child button {
+  height: 22px !important;
+  min-height: 22px !important;
+  max-height: 22px !important;
+  line-height: 1 !important;
+  padding: 0 8px !important;
+  margin: 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  position: static !important;
+  transform: none !important;
+  vertical-align: middle !important;
+}
+.liveProductSourceTable tr,
+.liveProductSourceTable th,
+.liveProductSourceTable td,
+.liveProductBigTable tr,
+.liveProductBigTable th,
+.liveProductBigTable td {
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+}
+.liveNameInput {
+  width: 100% !important;
+  min-width: 120px !important;
+  height: 22px !important;
+  border: 1px solid #d6c15c !important;
+  border-radius: 10px !important;
+  background: #fffdf3 !important;
+  font-size: 10.5px !important;
+  padding: 1px 6px !important;
+}
+.liveSelectedTable td:first-child,
+.liveProductBigSelected td:first-child {
+  overflow: visible !important;
+  white-space: normal !important;
+}
