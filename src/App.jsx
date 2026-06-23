@@ -5067,7 +5067,7 @@ ${text}`;
               <div><span>미입금</span><b>{money(sales.unpaid)}</b></div>
               <div><span>킵 D-2/출고필요</span><b>{sales.keepDue.toLocaleString()}건</b></div>
             </div>
-            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제/재고복구</button></div>
+            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 재고 원복</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제/재고복구</button></div>
           </>}
         </div>
 
