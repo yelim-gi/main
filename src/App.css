@@ -4256,3 +4256,102 @@ input.liveNameInput {
 .liveProductSourceTable td:nth-child(6) { width: 12%; }
 .liveProductSourceTable th:nth-child(7),
 .liveProductSourceTable td:nth-child(7) { width: 10%; }
+
+/* v136: 재고관리 검색결과/라방주문 레이아웃 안정화 */
+.inventoryListPanel {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.inventorySelectedPanel {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: 90px !important;
+  overflow: auto !important;
+  margin: 6px 0 !important;
+  padding: 8px !important;
+}
+.inventoryResultArea {
+  order: 20 !important;
+  margin-top: 6px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.inventoryResultArea .productResultFixedRows {
+  height: min(430px, calc(100vh - 330px)) !important;
+  min-height: 260px !important;
+  max-height: 430px !important;
+  overflow: auto !important;
+}
+
+.liveWorkflowGrid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr) minmax(0, 1.15fr) !important;
+  align-items: start !important;
+}
+.liveWorkflowGrid > .panel {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+.liveOrderPanel {
+  grid-column: 3 !important;
+  grid-row: 1 !important;
+}
+.liveManagePanel {
+  grid-column: 3 !important;
+  grid-row: 2 !important;
+  margin-top: 8px !important;
+}
+.liveProductPanel {
+  grid-column: 2 !important;
+  grid-row: 1 / span 2 !important;
+}
+.liveMemberQuickPanel {
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+}
+.liveManagePanel .liveOrdersTable {
+  height: 300px !important;
+  max-height: 300px !important;
+}
+@media (max-width: 1400px) {
+  .liveWorkflowGrid {
+    grid-template-columns: 1fr !important;
+  }
+  .liveOrderPanel, .liveManagePanel, .liveProductPanel, .liveMemberQuickPanel {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}
+
+/* v136: 현재 선택한 라방에 이미 담긴 원재고 상품 표시 */
+.liveProductSourceTable tr.liveAlreadyAddedRow td,
+.liveProductBigTable tr.liveAlreadyAddedRow td {
+  background: #fff0b8 !important;
+  color: #8a5700 !important;
+  font-weight: 800 !important;
+}
+.liveProductSourceTable tr.liveAlreadyAddedRow td:first-child,
+.liveProductBigTable tr.liveAlreadyAddedRow td:nth-child(2) {
+  color: #d35400 !important;
+}
+.liveAddedBadge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-left: 6px !important;
+  padding: 1px 5px !important;
+  border-radius: 999px !important;
+  background: #ff7a59 !important;
+  color: #fff !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+}

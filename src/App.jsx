@@ -3980,6 +3980,23 @@ ${text}`;
 
   const selectedLiveProducts = selectedLiveSession?.products || [];
 
+  const liveAddedProductMap = useMemo(() => {
+    const map = new Map();
+    for (const item of selectedLiveProducts || []) {
+      const pid = String(item.productId || "");
+      if (!pid) continue;
+      const allocated = toInt(item.liveQty);
+      const remaining = toInt(item.remainingQty);
+      if (allocated > 0 || remaining > 0) {
+        const prev = map.get(pid) || { allocated: 0, remaining: 0 };
+        map.set(pid, { allocated: prev.allocated + allocated, remaining: prev.remaining + remaining });
+      }
+    }
+    return map;
+  }, [selectedLiveProducts]);
+
+  const isProductAddedToCurrentLive = (productId) => liveAddedProductMap.has(String(productId));
+
   const liveFilteredProducts = useMemo(() => {
     const kw = liveProductSearch.trim().toLowerCase();
     return products.filter((p) => {
@@ -5162,7 +5179,7 @@ ${text}`;
             <p className="statusLine">라방추가 시 본재고에서 라방재고로 수량이 이동돼요. 주문 저장은 라방재고를 예약하고, 입금확인부터 매출에 반영돼요.</p>
             <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" className="liveOpenBigProductBtn" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
             <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
-              {liveFilteredProducts.map((p) => <tr key={p.id}><td title={p.name}>{p.name}</td><td title={p.char1 || ""}>{p.char1 || "-"}</td><td title={p.char2 || ""}>{p.char2 || "-"}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>)}
+              {liveFilteredProducts.map((p) => { const liveAdded = isProductAddedToCurrentLive(p.id); const addedInfo = liveAddedProductMap.get(String(p.id)); return <tr key={p.id} className={liveAdded ? "liveAlreadyAddedRow" : ""}><td title={p.name}>{p.name}{liveAdded && <span className="liveAddedBadge">추가됨 {toInt(addedInfo?.remaining).toLocaleString()}개</span>}</td><td title={p.char1 || ""}>{p.char1 || "-"}</td><td title={p.char2 || ""}>{p.char2 || "-"}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>; })}
               {liveFilteredProducts.length === 0 && <tr><td colSpan="7" className="empty">상품이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>라방용 상품 목록</h3>
@@ -5178,7 +5195,7 @@ ${text}`;
                 <div className="modalTitle"><strong>라방 상품추가 크게보기</strong><button type="button" onClick={() => setLiveProductModalOpen(false)}>닫기</button></div>
                 <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><span className="statusLine">조회 {liveFilteredProducts.length.toLocaleString()}개</span></div>
                 <div className="tableWrap liveProductBigTable compactRows"><table><thead><tr><th>ID</th><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>카테고리</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
-                  {liveFilteredProducts.map((p) => <tr key={p.id}><td>{p.id}</td><td title={p.name}>{p.name}</td><td>{p.char1}</td><td>{p.char2}</td><td>{p.category}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>추가</button></td></tr>)}
+                  {liveFilteredProducts.map((p) => { const liveAdded = isProductAddedToCurrentLive(p.id); const addedInfo = liveAddedProductMap.get(String(p.id)); return <tr key={p.id} className={liveAdded ? "liveAlreadyAddedRow" : ""}><td>{p.id}</td><td title={p.name}>{p.name}{liveAdded && <span className="liveAddedBadge">추가됨 {toInt(addedInfo?.remaining).toLocaleString()}개</span>}</td><td>{p.char1}</td><td>{p.char2}</td><td>{p.category}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>추가</button></td></tr>; })}
                   {liveFilteredProducts.length === 0 && <tr><td colSpan="10" className="empty">상품이 없어요.</td></tr>}
                 </tbody></table></div>
                 <h3>현재 라방용 상품</h3>
