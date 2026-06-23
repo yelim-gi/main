@@ -3914,6 +3914,30 @@ ${text}`;
     return changed;
   }
 
+  async function adjustProductStockByProductId(productId, delta) {
+    if (!productId || !delta) return null;
+    const latest = products.find((p) => String(p.id) === String(productId));
+    const currentStock = toInt(latest?.stock);
+    const nextStock = Math.max(0, currentStock + toInt(delta));
+    const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", productId);
+    if (error) throw error;
+    await getProducts();
+    return nextStock;
+  }
+
+  async function adjustProductStockMany(qtyByProduct = {}) {
+    const entries = Object.entries(qtyByProduct).filter(([, qty]) => toInt(qty) !== 0);
+    if (entries.length === 0) return;
+    for (const [productId, delta] of entries) {
+      const latest = products.find((p) => String(p.id) === String(productId));
+      const currentStock = toInt(latest?.stock);
+      const nextStock = Math.max(0, currentStock + toInt(delta));
+      const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", productId);
+      if (error) throw error;
+    }
+    await getProducts();
+  }
+
   function explainLiveTableMissing(error) {
     const msg = String(error?.message || error || "");
     if (msg.includes("does not exist") || msg.includes("schema cache")) {
@@ -4177,35 +4201,40 @@ ${text}`;
   async function addProductToLive(product) {
     if (!selectedLiveSession) return alert("먼저 라방을 생성하거나 선택해줘.");
     const session = selectedLiveSession;
+    let stockAdjusted = false;
     try {
       const current = products.find((p) => String(p.id) === String(product.id)) || product;
-      const existingQty = (session.products || [])
-        .filter((x) => String(x.productId) === String(product.id))
-        .reduce((sum, x) => sum + toInt(x.liveQty), 0);
-      if (toInt(current.stock) <= existingQty) {
-        return alert(`본재고보다 라방 배정수량이 많아질 수 없어요. 현재 재고: ${toInt(current.stock)}개 / 이미 라방 배정: ${existingQty}개`);
+      if (toInt(current.stock) <= 0) {
+        return alert(`본재고가 부족해서 라방에 배정할 수 없어요. 현재 재고: ${toInt(current.stock)}개`);
       }
 
       let nextProducts = [];
       const exists = (session.products || []).find((x) => String(x.productId) === String(product.id));
       if (exists) {
         nextProducts = (session.products || []).map((x) => String(x.productId) === String(product.id)
-          ? { ...x, stockMode: "no_deduct", liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
+          ? { ...x, stockMode: "reserved_deducted", liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
           : x);
       } else {
         const item = {
           id: makeLiveId("liveitem"), productId: product.id, name: product.name, originalName: product.name, char1: product.char1, char2: product.char2,
           category: product.category, wholesale: toInt(product.wholesale), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
-          liveQty: "1", remainingQty: "1", stockMode: "no_deduct", memo: ""
+          liveQty: "1", remainingQty: "1", stockMode: "reserved_deducted", memo: ""
         };
         nextProducts = [item, ...(session.products || [])];
       }
       const nextSession = { ...session, products: nextProducts };
+
+      // 라방 배정 시점에 본재고에서 먼저 빼서 수동박스/재고관리 중복판매를 막는다.
+      await adjustProductStockByProductId(product.id, -1);
+      stockAdjusted = true;
       await saveLiveSessionDb(nextSession);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s)));
     } catch (error) {
+      if (stockAdjusted) {
+        try { await adjustProductStockByProductId(product.id, +1); } catch {}
+      }
       alert("라방 상품 추가 실패: " + (error?.message || String(error)) + "\n\nSupabase SQL을 아직 최신으로 실행하지 않았다면 supabase_setup.sql 전체를 다시 실행해줘.");
-      await getLiveSessions();
+      await Promise.all([getProducts(), getLiveSessions()]);
     }
   }
 
@@ -4230,12 +4259,18 @@ ${text}`;
     const reservedOrSold = Math.max(0, currentLiveQty - currentRemaining);
     const requested = Math.max(reservedOrSold, toInt(value));
     if (toInt(value) < reservedOrSold) alert(`이미 주문에 잡힌 수량이 ${reservedOrSold}개라 배정수량을 낮출 수 없어요.`);
-    const product = products.find((p) => String(p.id) === String(item.productId));
-    if (toInt(product?.stock) < requested) return alert(`본재고보다 많이 라방에 배정할 수 없어요. 현재 재고: ${toInt(product?.stock)}개`);
     const delta = requested - currentLiveQty;
+    const product = products.find((p) => String(p.id) === String(item.productId));
+    if (delta > 0 && toInt(product?.stock) < delta) return alert(`본재고보다 많이 라방에 배정할 수 없어요. 현재 가용 재고: ${toInt(product?.stock)}개`);
     try {
-      await updateLiveItem(item.id, { liveQty: String(requested), remainingQty: String(Math.max(0, currentRemaining + delta)) });
+      // 배정수량 증가분은 본재고에서 빼고, 감소분은 본재고로 돌린다.
+      if (delta !== 0) await adjustProductStockByProductId(item.productId, -delta);
+      await updateLiveItem(item.id, { stockMode: "reserved_deducted", liveQty: String(requested), remainingQty: String(Math.max(0, currentRemaining + delta)) });
     } catch (error) {
+      // 세션 저장 실패 시 재고 변경분 되돌림
+      if (delta !== 0) {
+        try { await adjustProductStockByProductId(item.productId, delta); } catch {}
+      }
       alert("라방 배정수량 수정 실패: " + error.message);
     }
   }
@@ -4270,15 +4305,20 @@ ${text}`;
       return alert(`현재 활성 주문에 들어있는 상품이라 삭제할 수 없어요. 주문관리에서 해당 주문의 [취소] 버튼을 눌러 주문을 먼저 취소해줘.
 대상: ${names}`);
     }
-    const ok = window.confirm(`${target.name} 라방 상품을 삭제할까요?
-
-입금확인 전에는 본재고가 차감되지 않으므로, 미판매 수량은 라방 목록에서만 제거됩니다.`);
+    const remain = toInt(target.remainingQty);
+    const ok = window.confirm(`${target.name} 라방 상품을 삭제할까요?\n\n남은수량 ${remain.toLocaleString()}개는 본재고로 복구되고, 라방 목록에서 제거됩니다.`);
     if (!ok) return;
+    let stockAdjusted = false;
     try {
+      if (remain > 0 && target.productId && String(target.stockMode || "reserved_deducted") !== "no_deduct") {
+        await adjustProductStockByProductId(target.productId, +remain);
+        stockAdjusted = true;
+      }
       const nextSession = { ...selectedLiveSession, products: (selectedLiveSession.products || []).filter((it) => String(it.id) !== String(itemId)) };
       await saveLiveSessionDb(nextSession);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
     } catch (error) {
+      if (stockAdjusted) { try { await adjustProductStockByProductId(target.productId, -remain); } catch {} }
       alert("라방 상품 삭제 실패: " + error.message);
     }
   }
@@ -4339,8 +4379,14 @@ ${text}`;
     const ok = window.confirm(`${selectedLiveSession.title} 라방을 삭제하고, 라방에 배정된 모든 수량을 본재고로 되돌릴까요?\n\n미입금/입금확인/킵/송장입력 주문은 취소 처리됩니다.`);
     if (!ok) return;
     try {
+      const restoreByProduct = {};
+      (selectedLiveSession.products || []).forEach((li) => {
+        if (String(li.stockMode || "reserved_deducted") === "no_deduct") return;
+        const qty = toInt(li.liveQty);
+        if (qty > 0 && li.productId) restoreByProduct[String(li.productId)] = (restoreByProduct[String(li.productId)] || 0) + qty;
+      });
+      await adjustProductStockMany(restoreByProduct);
       for (const o of sessionOrders) {
-        if (o.deducted) await adjustProductStockForPaidOrder(o, +1);
         if (toInt(o.usedPoints) > 0 || toInt(o.earnedPoints) > 0) await adjustMemberPointsByOrder(o, -toInt(o.usedPoints), -orderEarnedPointsValue(o));
         await saveLiveOrderDb({ ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소", updatedAt: nowString(), usedPoints: 0, deducted: false });
       }
@@ -4408,7 +4454,8 @@ ${text}`;
   }
 
   function liveItemNeedsLegacyStockRestore(item) {
-    return item && String(item.stockMode || "legacy_deducted") !== "no_deduct";
+    const mode = String(item?.stockMode || "legacy_deducted");
+    return item && mode === "legacy_deducted";
   }
 
   function activeUnpaidQtyForLiveItem(sessionId, liveItemId, productId) {
@@ -4756,11 +4803,8 @@ ${text}`;
         createdAt: oldOrder?.createdAt || nowString(), updatedAt: nowString(), locked: oldOrder?.locked || false, canceledAt: "", cancelReason: "", deducted: oldOrder?.deducted || false, paidAt: oldOrder?.paidAt || "", memberKey,
         ...liveOrderForm, status: oldOrder?.status || "미입금", address: orderAddressOf(liveOrderForm), items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary, earnedPoints: summary.earnedPoints, pointRate: summary.pointRate, memberPointsBefore: oldOrder?.memberPointsBefore ?? (toInt(summary.pointBalanceAfter) + toInt(summary.usedPoints) - toInt(summary.earnedPoints)), memberPointsAfter: summary.pointBalanceAfter, pointBalanceAfter: summary.pointBalanceAfter, pointNote: session.pointNote || liveNewSession.pointNote || "",
       };
-      if (oldOrder?.deducted) {
-        await adjustProductStockForPaidOrder(oldOrder, +1);
-        await adjustProductStockForPaidOrder(order, -1);
-        order.deducted = true;
-      }
+      // 라방 상품 등록 시 본재고를 이미 예약 차감하므로 주문 수정/저장 때 본재고는 건드리지 않는다.
+      order.deducted = false;
       await saveLiveOrderDb(order);
 
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
@@ -4784,22 +4828,20 @@ ${text}`;
     if (current.locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) return alert("구매확정 잠금된 주문이에요. 수정하려면 잠금해제 해줘.");
     let next = { ...current, ...patch, updatedAt: nowString() };
     const hasStatusPatch = Object.prototype.hasOwnProperty.call(patch, "status");
-    const nextIsPaid = hasStatusPatch ? isPaidLiveStatus(patch.status) : !!current.deducted;
-    const shouldDeductStock = hasStatusPatch && nextIsPaid && !current.deducted;
-    const shouldRestoreStock = hasStatusPatch && !nextIsPaid && current.deducted;
+    const nextIsPaid = hasStatusPatch ? isPaidLiveStatus(patch.status) : isPaidLiveStatus(current.status);
 
-    if (shouldDeductStock) {
-      next = { ...next, deducted: true, paidAt: nowString() };
+    // 라방재고는 라방 상품 등록 시 이미 본재고에서 빠져 있으므로,
+    // 입금확인/송장입력/출고완료 상태 변경 때 본재고를 또 차감하지 않는다.
+    if (hasStatusPatch && nextIsPaid && !current.paidAt) {
+      next = { ...next, deducted: false, paidAt: nowString() };
     }
-    if (shouldRestoreStock) {
+    if (hasStatusPatch && !nextIsPaid) {
       next = { ...next, deducted: false, paidAt: "" };
     }
     if (hasStatusPatch && ["정산후킵", "입금후킵", "입금후합배송"].includes(patch.status)) {
       next = { ...next, trackingNo: "" };
     }
     try {
-      if (shouldDeductStock) await adjustProductStockForPaidOrder(current, -1);
-      if (shouldRestoreStock) await adjustProductStockForPaidOrder(current, +1);
       await saveLiveOrderDb(next);
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
     } catch (error) {
@@ -4822,7 +4864,7 @@ ${text}`;
         await saveLiveSessionDb(nextSession);
         setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
       }
-      if (order.deducted) await adjustProductStockForPaidOrder(order, +1);
+      // 주문취소는 라방 남은수량으로만 복구한다. 본재고 복구는 라방상품 삭제/라방종료 때 처리.
       if (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -orderEarnedPointsValue(order));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
@@ -4853,7 +4895,7 @@ ${text}`;
           setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
         }
       }
-      if (!order.canceledAt && order.deducted) await adjustProductStockForPaidOrder(order, +1);
+      // 주문삭제는 라방 남은수량으로만 복구한다. 본재고 복구는 라방상품 삭제/라방종료 때 처리.
       if (!order.canceledAt && (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0)) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -orderEarnedPointsValue(order));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
@@ -5165,12 +5207,20 @@ ${text}`;
     const restoreItems = liveProducts.filter((li) => toInt(li.remainingQty) > 0);
     if (restoreItems.length === 0) return alert("정리할 미판매 라방수량이 없어요.");
     const totalQty = restoreItems.reduce((sum, li) => sum + toInt(li.remainingQty), 0);
-    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료하고 미판매 라방수량 ${totalQty}개를 정리할까요?
+    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료하고 미판매 라방수량 ${totalQty}개를 본재고로 원복할까요?
 
-입금확인 전에는 본재고를 차감하지 않으므로, 미판매 수량은 본재고에 더하지 않고 라방 남은수량만 0으로 처리합니다.`);
+라방 등록 시 본재고에서 빠져있던 미판매 수량만 다시 재고관리로 돌아갑니다. 이미 주문에 잡힌 수량은 유지됩니다.`);
     if (!ok) return;
 
+    const restoreByProduct = {};
+    restoreItems.forEach((li) => {
+      if (String(li.stockMode || "reserved_deducted") === "no_deduct") return;
+      const remain = toInt(li.remainingQty);
+      if (remain > 0 && li.productId) restoreByProduct[String(li.productId)] = (restoreByProduct[String(li.productId)] || 0) + remain;
+    });
+
     try {
+      await adjustProductStockMany(restoreByProduct);
       const nextProducts = liveProducts.map((li) => {
         const remain = toInt(li.remainingQty);
         if (remain <= 0) return li;
@@ -5191,12 +5241,12 @@ ${text}`;
 
       await saveLiveSessionDb(nextSession);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
-      await getLiveSessions();
+      await Promise.all([getProducts(), getLiveSessions()]);
       await writeAudit("live_session_close_restore_unsold", `${selectedLiveSession.title || selectedLiveSession.id} / qty=${totalQty}`);
-      alert(`라방을 종료하고 미판매 수량 ${totalQty}개를 정리했어요.`);
+      alert(`라방을 종료하고 미판매 수량 ${totalQty}개를 본재고로 원복했어요.`);
     } catch (error) {
-      alert("미판매 재고 정리 실패: " + String(error?.message || error));
-      getLiveSessions();
+      alert("미판매 재고 원복 실패: " + String(error?.message || error));
+      await Promise.all([getProducts(), getLiveSessions()]);
     }
   }
 
@@ -5236,7 +5286,7 @@ ${text}`;
               <div><span>미입금</span><b>{money(sales.unpaid)}</b></div>
               <div><span>킵 D-2/출고필요</span><b>{sales.keepDue.toLocaleString()}건</b></div>
             </div>
-            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={restoreLegacyLiveReservedStockForSelectedSession}>구버전 라방예약 재고복구</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 정리</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제</button></div>
+            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={restoreLegacyLiveReservedStockForSelectedSession}>구버전 라방예약 재고복구</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 재고 원복</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제</button></div>
           </>}
         </div>
 
