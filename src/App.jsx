@@ -3719,6 +3719,8 @@ ${text}`;
       paidAt: r.paid_at || r.paidAt || "",
       usedPoints: toInt(r.used_points ?? r.usedPoints),
       earnedPoints: toInt(r.earned_points ?? r.earnedPoints),
+      memberPointsBefore: toInt(r.member_points_before ?? r.memberPointsBefore),
+      memberPointsAfter: toInt(r.member_points_after ?? r.memberPointsAfter),
       pointRate: String(r.point_rate ?? r.pointRate ?? "0"),
       pointBalanceAfter: toInt(r.point_balance_after ?? r.pointBalanceAfter),
       pointNote: r.point_note ?? r.pointNote ?? "",
@@ -3764,6 +3766,8 @@ ${text}`;
       paid_at: row.paidAt || "",
       used_points: toInt(row.usedPoints),
       earned_points: toInt(row.earnedPoints),
+      member_points_before: toInt(row.memberPointsBefore),
+      member_points_after: toInt(row.memberPointsAfter ?? row.pointBalanceAfter),
       point_rate: String(row.pointRate || "0"),
       point_balance_after: toInt(row.pointBalanceAfter),
       point_note: row.pointNote || "",
@@ -4384,17 +4388,40 @@ ${text}`;
   async function adjustMemberPointsByOrder(row, deltaUsedPoints, deltaEarnedPoints = 0) {
     const delta = toInt(deltaUsedPoints);
     const earn = toInt(deltaEarnedPoints);
-    if (delta === 0 && earn === 0) return;
-    const member = findLiveMemberForOrderLike(row);
-    if (!member) return;
+    if (delta === 0 && earn === 0) return null;
+
+    // 포인트는 반드시 DB의 최신 회원 포인트 기준으로 보정한다.
+    // (React state가 오래되면 취소/수정 시 적립포인트가 남는 문제가 생김)
+    let member = findLiveMemberForOrderLike(row);
+    const key = row?.memberKey || makeMemberKey(row?.buyer || row?.name, row?.phone);
+
+    try {
+      const { data } = await supabase.from("live_members").select("*");
+      const rows = (data || []).map(liveMemberFromDb);
+      const found = rows.find((m) => {
+        const mk = makeMemberKey(m.name, m.phone);
+        return (member?.id && String(m.id) === String(member.id)) ||
+          (key && (mk === key || String(m.id) === String(key))) ||
+          (row?.phone && onlyDigits(m.phone) === onlyDigits(row.phone) && String(m.name || "").trim() === String(row.buyer || row.name || "").trim());
+      });
+      if (found) member = found;
+    } catch (e) {
+      console.warn("회원 최신 포인트 조회 실패, 현재 state 기준으로 보정합니다.", e);
+    }
+
+    if (!member) return null;
+
+    const before = toInt(member.points);
+    const nextPoints = Math.max(0, before - delta + earn);
     const next = {
       ...member,
       updatedAt: nowString(),
-      points: String(Math.max(0, toInt(member.points) - delta + earn)),
+      points: String(nextPoints),
       usedPoints: Math.max(0, toInt(member.usedPoints) + delta),
     };
     await saveLiveMemberDb(next);
-    setLiveMembers((prev) => prev.map((m) => String(m.id) === String(member.id) ? next : m));
+    setLiveMembers((prev) => [next, ...prev.filter((m) => String(m.id) !== String(member.id))]);
+    return next;
   }
 
   function resetLiveOrderFormAfterSave() {
@@ -4531,7 +4558,7 @@ ${text}`;
       const order = {
         id: oldOrder?.id || makeLiveId("liveorder"), sessionId: session.id, liveTitle: session.title, liveDate: session.date,
         createdAt: oldOrder?.createdAt || nowString(), updatedAt: nowString(), locked: oldOrder?.locked || false, canceledAt: "", cancelReason: "", deducted: oldOrder?.deducted || false, paidAt: oldOrder?.paidAt || "", memberKey,
-        ...liveOrderForm, status: oldOrder?.status || "미입금", address: orderAddressOf(liveOrderForm), items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary, earnedPoints: summary.earnedPoints, pointRate: summary.pointRate, pointBalanceAfter: summary.pointBalanceAfter, pointNote: session.pointNote || liveNewSession.pointNote || "",
+        ...liveOrderForm, status: oldOrder?.status || "미입금", address: orderAddressOf(liveOrderForm), items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary, earnedPoints: summary.earnedPoints, pointRate: summary.pointRate, memberPointsBefore: oldOrder?.memberPointsBefore ?? (toInt(summary.pointBalanceAfter) + toInt(summary.usedPoints) - toInt(summary.earnedPoints)), memberPointsAfter: summary.pointBalanceAfter, pointBalanceAfter: summary.pointBalanceAfter, pointNote: session.pointNote || liveNewSession.pointNote || "",
       };
       await saveLiveOrderDb(order);
 
@@ -4572,7 +4599,7 @@ ${text}`;
   async function cancelLiveOrderWithRestore(order) {
     if (!order) return;
     if (order.locked) return alert("구매확정 잠금된 주문이에요. 잠금해제 후 취소해줘.");
-    const ok = window.confirm(`이 주문을 취소하고 주문관리 목록에서 제거할까요?\n\n취소 시 주문 품목은 라방 남은수량으로 복구됩니다.\n구매자: ${order.buyer}\n금액: ${money(order.total)}`);
+    const ok = window.confirm(`이 주문을 취소하고 주문관리 목록에서 제거할까요?\n\n취소 시 주문 품목은 라방 남은수량으로 복구되고, 해당 주문의 사용/적립 포인트만 되돌립니다.\n구매자: ${order.buyer}\n금액: ${money(order.total)}`);
     if (!ok) return;
     try {
       const session = liveSessions.find((s) => String(s.id) === String(order.sessionId));

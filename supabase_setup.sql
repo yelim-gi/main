@@ -239,3 +239,8 @@ alter table live_orders add column if not exists point_note text;
 -- v118 member info / points refinements
 alter table live_members add column if not exists point_rate text default '0';
 alter table live_orders add column if not exists combined_group_id text;
+
+
+-- v125 point rollback safety
+alter table live_orders add column if not exists member_points_before integer default 0;
+alter table live_orders add column if not exists member_points_after integer default 0;
