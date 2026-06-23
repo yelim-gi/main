@@ -4355,3 +4355,112 @@ input.liveNameInput {
   line-height: 1.2 !important;
   white-space: nowrap !important;
 }
+
+/* v137: 라방용 상품목록 숫자 칸 축소 + sticky 헤더 침범 방지 */
+.liveSelectedTable,
+.liveProductBigSelected {
+  position: relative !important;
+  overflow: auto !important;
+  background: #fff !important;
+  isolation: isolate !important;
+}
+
+.liveSelectedTable table,
+.liveProductBigSelected table {
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
+}
+
+.liveSelectedTable thead th,
+.liveProductBigSelected thead th,
+.liveProductSourceTable thead th,
+.liveProductBigTable thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: #fff2b3 !important;
+  box-shadow: 0 1px 0 #bfbfbf !important;
+}
+
+.liveSelectedTable tbody tr,
+.liveSelectedTable tbody td,
+.liveProductBigSelected tbody tr,
+.liveProductBigSelected tbody td,
+.liveProductSourceTable tbody tr,
+.liveProductSourceTable tbody td,
+.liveProductBigTable tbody tr,
+.liveProductBigTable tbody td {
+  position: static !important;
+  z-index: auto !important;
+  transform: none !important;
+}
+
+.liveSelectedTable th:nth-child(1),
+.liveSelectedTable td:nth-child(1) { width: 250px !important; min-width: 250px !important; max-width: 250px !important; }
+.liveSelectedTable th:nth-child(2),
+.liveSelectedTable td:nth-child(2) { width: 90px !important; min-width: 90px !important; max-width: 90px !important; }
+.liveSelectedTable th:nth-child(3),
+.liveSelectedTable td:nth-child(3),
+.liveSelectedTable th:nth-child(4),
+.liveSelectedTable td:nth-child(4) { width: 48px !important; min-width: 48px !important; max-width: 48px !important; padding-left: 2px !important; padding-right: 2px !important; }
+.liveSelectedTable th:nth-child(5),
+.liveSelectedTable td:nth-child(5),
+.liveSelectedTable th:nth-child(6),
+.liveSelectedTable td:nth-child(6),
+.liveSelectedTable th:nth-child(8),
+.liveSelectedTable td:nth-child(8) { width: 76px !important; min-width: 76px !important; max-width: 76px !important; }
+.liveSelectedTable th:nth-child(7),
+.liveSelectedTable td:nth-child(7),
+.liveSelectedTable th:nth-child(9),
+.liveSelectedTable td:nth-child(9) { width: 62px !important; min-width: 62px !important; max-width: 62px !important; }
+.liveSelectedTable th:nth-child(10),
+.liveSelectedTable td:nth-child(10),
+.liveSelectedTable th:nth-child(11),
+.liveSelectedTable td:nth-child(11) { width: 54px !important; min-width: 54px !important; max-width: 54px !important; }
+
+.liveSelectedTable td:nth-child(3) input.tinyInput,
+.liveProductBigSelected td:nth-child(2) input.tinyInput {
+  width: 34px !important;
+  min-width: 34px !important;
+  max-width: 34px !important;
+  height: 20px !important;
+  padding: 0 2px !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+}
+
+.liveSelectedTable td:nth-child(7) input.tinyInput {
+  width: 34px !important;
+  min-width: 34px !important;
+  max-width: 34px !important;
+  height: 20px !important;
+  padding: 0 2px !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+}
+
+.liveSelectedTable td:nth-child(8) input,
+.liveProductBigSelected td:nth-child(5) input {
+  width: 58px !important;
+  min-width: 58px !important;
+  max-width: 58px !important;
+  height: 20px !important;
+  padding: 0 3px !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+}
+
+.liveProductBigSelected th:nth-child(2),
+.liveProductBigSelected td:nth-child(2),
+.liveProductBigSelected th:nth-child(3),
+.liveProductBigSelected td:nth-child(3) { width: 48px !important; min-width: 48px !important; max-width: 48px !important; padding-left: 2px !important; padding-right: 2px !important; }
+.liveProductBigSelected th:nth-child(4),
+.liveProductBigSelected td:nth-child(4),
+.liveProductBigSelected th:nth-child(5),
+.liveProductBigSelected td:nth-child(5) { width: 76px !important; min-width: 76px !important; max-width: 76px !important; }
+.liveProductBigSelected th:nth-child(6),
+.liveProductBigSelected td:nth-child(6) { width: 62px !important; min-width: 62px !important; max-width: 62px !important; }
+.liveProductBigSelected th:nth-child(7),
+.liveProductBigSelected td:nth-child(7),
+.liveProductBigSelected th:nth-child(8),
+.liveProductBigSelected td:nth-child(8) { width: 54px !important; min-width: 54px !important; max-width: 54px !important; }
