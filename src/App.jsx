@@ -4221,7 +4221,7 @@ ${text}`;
         if (error) throw error;
       }
       for (const o of sessionOrders) {
-        if (toInt(o.usedPoints) > 0) await adjustMemberPointsByOrder(o, -toInt(o.usedPoints), -toInt(o.earnedPoints));
+        if (toInt(o.usedPoints) > 0 || toInt(o.earnedPoints) > 0) await adjustMemberPointsByOrder(o, -toInt(o.usedPoints), -toInt(o.earnedPoints));
         await saveLiveOrderDb({ ...o, status: "취소", canceledAt: nowString(), cancelReason: "라방 삭제로 취소", updatedAt: nowString(), usedPoints: 0 });
       }
       const { error: delError } = await supabase.from("live_sessions").delete().eq("id", selectedLiveSession.id);
@@ -4584,7 +4584,7 @@ ${text}`;
         await saveLiveSessionDb(nextSession);
         setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
       }
-      if (toInt(order.usedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
+      if (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
       setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
@@ -4614,7 +4614,7 @@ ${text}`;
           setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
         }
       }
-      if (!order.canceledAt && toInt(order.usedPoints) > 0) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
+      if (!order.canceledAt && (toInt(order.usedPoints) > 0 || toInt(order.earnedPoints) > 0)) await adjustMemberPointsByOrder(order, -toInt(order.usedPoints), -toInt(order.earnedPoints));
       const { error } = await supabase.from("live_orders").delete().eq("id", order.id);
       if (error) throw error;
       setLiveOrders((prev) => prev.filter((o) => String(o.id) !== String(order.id)));
