@@ -10,7 +10,8 @@
     "react": "latest",
     "react-dom": "latest",
     "@supabase/supabase-js": "latest",
-    "xlsx": "latest"
+    "xlsx": "latest",
+    "jszip": "latest"
   },
   "devDependencies": {}
 }
