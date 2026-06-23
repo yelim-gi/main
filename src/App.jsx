@@ -37,6 +37,23 @@ function money(v) {
   return `${toInt(v).toLocaleString()}원`;
 }
 
+function calcRetailFromRate(wholesale, rate) {
+  const w = toInt(wholesale);
+  const r = toNum(rate);
+  if (!w || rate === undefined || rate === null || String(rate).trim() === "") return "";
+  return String(Math.round(w * (1 + r / 100)));
+}
+
+function applyRetailRateToForm(form, patch = {}) {
+  const next = { ...form, ...patch };
+  const hasRate = next.retailRate !== undefined && next.retailRate !== null && String(next.retailRate).trim() !== "";
+  if (hasRate) {
+    const retail = calcRetailFromRate(next.wholesale, next.retailRate);
+    if (retail !== "") next.retail = retail;
+  }
+  return next;
+}
+
 function mmdd(value) {
   const raw = String(value || "");
   const m = raw.match(/(\d{4})[-./]?(\d{2})[-./]?(\d{2})/);
@@ -401,7 +418,7 @@ export default function App() {
 
   const [editProductForm, setEditProductForm] = useState(null);
   const [productForm, setProductForm] = useState({
-    name: "", char1: "", char2: "", category: "", stock: "", wholesale: "", retail: "", hidden: false,
+    name: "", char1: "", char2: "", category: "", stock: "", wholesale: "", retailRate: "", retail: "", hidden: false,
   });
 
   const [aiImportFileName, setAiImportFileName] = useState("");
@@ -842,7 +859,7 @@ export default function App() {
       hidden: !!productForm.hidden,
     }]);
     if (error) return alert("상품 저장 실패: " + error.message);
-    setProductForm({ name: "", char1: "", char2: "", category: "", stock: "", wholesale: "", retail: "", hidden: false });
+    setProductForm({ name: "", char1: "", char2: "", category: "", stock: "", wholesale: "", retailRate: "", retail: "", hidden: false });
     getProducts();
   }
 
@@ -2599,6 +2616,7 @@ export default function App() {
       category: p.category || "",
       stock: String(toInt(p.stock)),
       wholesale: String(toInt(p.wholesale)),
+      retailRate: "",
       retail: String(toInt(p.retail)),
     });
   }
@@ -2668,6 +2686,7 @@ export default function App() {
       category: p.category || "",
       stock: String(toInt(p.stock)),
       wholesale: String(toInt(p.wholesale)),
+      retailRate: "",
       retail: String(toInt(p.retail)),
     });
   }
@@ -3288,8 +3307,9 @@ ${text}`;
             <input value={productForm.char2} onChange={(e) => setProductForm({ ...productForm, char2: e.target.value })} placeholder="캐릭터2" />
             <input value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} placeholder="카테고리" />
             <input value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} placeholder="재고" />
-            <input value={productForm.wholesale} onChange={(e) => setProductForm({ ...productForm, wholesale: e.target.value })} placeholder="도매가" />
-            <input value={productForm.retail} onChange={(e) => setProductForm({ ...productForm, retail: e.target.value })} placeholder="소비자가" />
+            <input value={productForm.wholesale} onChange={(e) => setProductForm(applyRetailRateToForm(productForm, { wholesale: e.target.value }))} placeholder="도매가" />
+            <input value={productForm.retailRate || ""} onChange={(e) => setProductForm(applyRetailRateToForm(productForm, { retailRate: e.target.value }))} placeholder="소비자가율(%)" title="도매가에서 몇 % 더할지 입력하면 소비자가가 자동 계산돼요." />
+            <input value={productForm.retail} onChange={(e) => setProductForm({ ...productForm, retail: e.target.value, retailRate: "" })} placeholder="소비자가" title="직접 입력하면 소비자가율은 비워져요." />
             <button onClick={addProduct}>상품 저장</button>
           </div>
 
@@ -3321,8 +3341,9 @@ ${text}`;
             </div>
             <div className="filterRow">
               <label>재고수량</label><input value={editProductForm.stock} onChange={(e) => setEditProductForm({ ...editProductForm, stock: e.target.value })} />
-              <label>도매가</label><input value={editProductForm.wholesale} onChange={(e) => setEditProductForm({ ...editProductForm, wholesale: e.target.value })} />
-              <label>소비자가</label><input value={editProductForm.retail} onChange={(e) => setEditProductForm({ ...editProductForm, retail: e.target.value })} />
+              <label>도매가</label><input value={editProductForm.wholesale} onChange={(e) => setEditProductForm(applyRetailRateToForm(editProductForm, { wholesale: e.target.value }))} />
+              <label>소비자가율(%)</label><input value={editProductForm.retailRate || ""} onChange={(e) => setEditProductForm(applyRetailRateToForm(editProductForm, { retailRate: e.target.value }))} placeholder="예: 30" />
+              <label>소비자가</label><input value={editProductForm.retail} onChange={(e) => setEditProductForm({ ...editProductForm, retail: e.target.value, retailRate: "" })} />
             </div>
             <div className="buttonRow">
               <button type="button" onClick={saveEditedProduct}>수정완료</button>

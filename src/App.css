@@ -4154,18 +4154,85 @@ body:has(.fixedCharacterModalOverlay) {
   min-height: 32px !important;
   max-height: 32px !important;
 }
-.liveNameInput {
-  width: 100% !important;
-  min-width: 120px !important;
-  height: 22px !important;
-  border: 1px solid #d6c15c !important;
-  border-radius: 10px !important;
-  background: #fffdf3 !important;
-  font-size: 10.5px !important;
-  padding: 1px 6px !important;
+.liveSelectedTable table,
+.liveProductBigSelected table {
+  table-layout: fixed !important;
 }
+.liveSelectedTable th:first-child,
 .liveSelectedTable td:first-child,
+.liveProductBigSelected th:first-child,
 .liveProductBigSelected td:first-child {
-  overflow: visible !important;
-  white-space: normal !important;
+  min-width: 170px !important;
+  width: 170px !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  padding: 2px 4px !important;
+}
+.liveNameInput {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: 20px !important;
+  line-height: 18px !important;
+  border: 1px solid #d6c15c !important;
+  border-radius: 4px !important;
+  background: #fffdf3 !important;
+  font-size: 10px !important;
+  padding: 1px 5px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* v133: 라방용 상품명 입력칸 표선 침범 완전 방지 */
+.liveSelectedTable table,
+.liveProductBigSelected table {
+  table-layout: fixed !important;
+  min-width: 980px !important;
+}
+
+.liveSelectedTable th:first-child,
+.liveSelectedTable td:first-child,
+.liveProductBigSelected th:first-child,
+.liveProductBigSelected td:first-child {
+  width: 240px !important;
+  min-width: 240px !important;
+  max-width: 240px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  padding: 2px 4px !important;
+  vertical-align: middle !important;
+}
+
+.liveSelectedTable td:first-child .liveNameInput,
+.liveProductBigSelected td:first-child .liveNameInput,
+input.liveNameInput {
+  display: block !important;
+  width: calc(100% - 8px) !important;
+  max-width: calc(100% - 8px) !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  max-height: 20px !important;
+  line-height: 18px !important;
+  padding: 1px 4px !important;
+  margin: 0 auto !important;
+  border: 1px solid #d6c15c !important;
+  border-radius: 4px !important;
+  background: #fffdf3 !important;
+  font-size: 10px !important;
+  text-align: left !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.liveSelectedTable td:first-child .liveNameInput:focus,
+.liveProductBigSelected td:first-child .liveNameInput:focus {
+  outline: 1px solid #d0aa00 !important;
+  outline-offset: -1px !important;
 }
