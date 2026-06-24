@@ -4761,3 +4761,37 @@ input.liveNameInput {
   padding-left: 2px !important;
   padding-right: 2px !important;
 }
+
+
+/* v149: 라방용 상품목록 컬럼 재조정 + 출력용 버튼 안정화 */
+.liveSelectedTable table { table-layout: fixed !important; min-width: 1010px !important; }
+.liveSelectedTable th:nth-child(1), .liveSelectedTable td:nth-child(1) { width: 32px !important; min-width: 32px !important; max-width: 32px !important; }
+.liveSelectedTable th:nth-child(2), .liveSelectedTable td:nth-child(2) { width: 360px !important; min-width: 360px !important; max-width: 360px !important; }
+.liveSelectedTable th:nth-child(3), .liveSelectedTable td:nth-child(3) { width: 76px !important; min-width: 76px !important; max-width: 76px !important; }
+.liveSelectedTable th:nth-child(4), .liveSelectedTable td:nth-child(4),
+.liveSelectedTable th:nth-child(5), .liveSelectedTable td:nth-child(5) { width: 36px !important; min-width: 36px !important; max-width: 36px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveSelectedTable th:nth-child(6), .liveSelectedTable td:nth-child(6),
+.liveSelectedTable th:nth-child(7), .liveSelectedTable td:nth-child(7) { width: 70px !important; min-width: 70px !important; max-width: 70px !important; }
+.liveSelectedTable th:nth-child(8), .liveSelectedTable td:nth-child(8) { width: 44px !important; min-width: 44px !important; max-width: 44px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveSelectedTable th:nth-child(9), .liveSelectedTable td:nth-child(9) { width: 98px !important; min-width: 98px !important; max-width: 98px !important; }
+.liveSelectedTable th:nth-child(10), .liveSelectedTable td:nth-child(10) { width: 52px !important; min-width: 52px !important; max-width: 52px !important; }
+.liveSelectedTable th:nth-child(11), .liveSelectedTable td:nth-child(11),
+.liveSelectedTable th:nth-child(12), .liveSelectedTable td:nth-child(12) { width: 44px !important; min-width: 44px !important; max-width: 44px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveSelectedTable td:nth-child(4) input.tinyInput,
+.liveSelectedTable td:nth-child(8) input.tinyInput { width: 28px !important; min-width: 28px !important; max-width: 28px !important; padding: 0 1px !important; }
+.liveSelectedTable td:nth-child(9) input { width: 86px !important; min-width: 86px !important; max-width: 86px !important; text-align: right !important; }
+.liveSelectedTable td:nth-child(11) button, .liveSelectedTable td:nth-child(12) button { width: 36px !important; min-width: 36px !important; padding-left: 1px !important; padding-right: 1px !important; }
+
+.liveProductBigSelected table { table-layout: fixed !important; min-width: 760px !important; }
+.liveProductBigSelected th:nth-child(1), .liveProductBigSelected td:nth-child(1) { width: 32px !important; min-width: 32px !important; max-width: 32px !important; }
+.liveProductBigSelected th:nth-child(2), .liveProductBigSelected td:nth-child(2) { width: 360px !important; min-width: 360px !important; max-width: 360px !important; }
+.liveProductBigSelected th:nth-child(3), .liveProductBigSelected td:nth-child(3),
+.liveProductBigSelected th:nth-child(4), .liveProductBigSelected td:nth-child(4) { width: 36px !important; min-width: 36px !important; max-width: 36px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveProductBigSelected th:nth-child(5), .liveProductBigSelected td:nth-child(5) { width: 68px !important; min-width: 68px !important; max-width: 68px !important; }
+.liveProductBigSelected th:nth-child(6), .liveProductBigSelected td:nth-child(6) { width: 96px !important; min-width: 96px !important; max-width: 96px !important; }
+.liveProductBigSelected th:nth-child(7), .liveProductBigSelected td:nth-child(7) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+.liveProductBigSelected th:nth-child(8), .liveProductBigSelected td:nth-child(8),
+.liveProductBigSelected th:nth-child(9), .liveProductBigSelected td:nth-child(9) { width: 44px !important; min-width: 44px !important; max-width: 44px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveProductBigSelected td:nth-child(3) input.tinyInput { width: 28px !important; min-width: 28px !important; max-width: 28px !important; padding: 0 1px !important; }
+.liveProductBigSelected td:nth-child(6) input { width: 84px !important; min-width: 84px !important; max-width: 84px !important; text-align: right !important; }
+.liveProductBigSelected td:nth-child(8) button, .liveProductBigSelected td:nth-child(9) button { width: 36px !important; min-width: 36px !important; padding-left: 1px !important; padding-right: 1px !important; }

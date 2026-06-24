@@ -5011,50 +5011,110 @@ ${text}`;
     alert("주문을 합배송 묶음으로 연결했어요.");
   }
 
+  function liveProductListRowsForExport() {
+    const items = selectedLiveSession?.products || [];
+    return items.map((it, idx) => ({
+      no: idx + 1,
+      name: it.name || "",
+      char1: it.char1 || "",
+      char2: it.char2 || "",
+      category: it.category || "",
+      wholesale: toInt(it.wholesale),
+      retail: toInt(it.retail),
+      discountRate: toNum(it.discountRate),
+      livePrice: toInt(it.livePrice),
+      memo: it.memo || "",
+    }));
+  }
+
   function downloadLiveProductListExcel() {
     if (!selectedLiveSession) return alert("라방을 먼저 선택해줘.");
-    const items = selectedLiveSession.products || [];
-    if (!items.length) return alert("다운로드할 라방상품이 없어요.");
+    const exportRows = liveProductListRowsForExport();
+    if (!exportRows.length) return alert("다운로드할 라방상품이 없어요.");
 
     const rows = [[
-      "순번", "라방상품명", "원본상품명", "캐릭터1", "캐릭터2", "카테고리",
-      "배정수량", "남은수량", "판매수량", "도매가", "소비자가", "할인율(%)", "라방가", "마진율(%)", "메모"
+      "순번", "라방상품명", "캐릭터1", "캐릭터2", "카테고리",
+      "도매가", "소비자가", "할인율(%)", "라방가", "메모"
     ]];
 
-    items.forEach((it, idx) => {
-      const liveQty = toInt(it.liveQty);
-      const remaining = toInt(it.remainingQty);
-      const sold = Math.max(0, liveQty - remaining);
-      const wholesale = toInt(it.wholesale);
-      const livePrice = toInt(it.livePrice);
-      const marginRate = wholesale > 0 ? ((livePrice - wholesale) / wholesale) * 100 : 0;
+    exportRows.forEach((it) => {
       rows.push([
-        idx + 1,
-        it.name || "",
-        it.originalName || it.name || "",
-        it.char1 || "",
-        it.char2 || "",
-        it.category || "",
-        liveQty,
-        remaining,
-        sold,
-        wholesale,
-        toInt(it.retail),
-        toNum(it.discountRate),
-        livePrice,
-        wholesale > 0 ? Number(marginRate.toFixed(1)) : "",
-        it.memo || "",
+        it.no,
+        it.name,
+        it.char1,
+        it.char2,
+        it.category,
+        it.wholesale,
+        it.retail,
+        it.discountRate,
+        it.livePrice,
+        it.memo,
       ]);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [
-      { wch: 6 }, { wch: 34 }, { wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-      { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 11 }, { wch: 10 }, { wch: 24 },
+      { wch: 6 }, { wch: 52 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 14 },
     ];
+    ws["!pageSetup"] = { paperSize: 9, orientation: "portrait", fitToWidth: 1, fitToHeight: 0 };
+    ws["!margins"] = { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "라방상품목록");
     XLSX.writeFile(wb, `${mmdd(selectedLiveSession.date)}_라방상품목록.xlsx`);
+  }
+
+  function openLiveProductListPdf() {
+    if (!selectedLiveSession) return alert("라방을 먼저 선택해줘.");
+    const exportRows = liveProductListRowsForExport();
+    if (!exportRows.length) return alert("출력할 라방상품이 없어요.");
+
+    const rows = exportRows.map((it) => `
+      <tr>
+        <td>${it.no}</td>
+        <td class="name">${htmlSafe(it.name)}</td>
+        <td>${htmlSafe(it.char1)}</td>
+        <td>${htmlSafe(it.char2)}</td>
+        <td>${htmlSafe(it.category)}</td>
+        <td>${money(it.wholesale)}</td>
+        <td>${money(it.retail)}</td>
+        <td>${it.discountRate ? htmlSafe(String(it.discountRate)) + "%" : ""}</td>
+        <td class="livePrice">${money(it.livePrice)}</td>
+        <td class="memo">${htmlSafe(it.memo)}</td>
+      </tr>`).join("");
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${mmdd(selectedLiveSession.date)}_라방상품목록</title>
+      <style>
+        @page{size:A4 portrait;margin:8mm}
+        html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00}
+        .page{width:210mm;min-height:297mm;margin:8mm auto;background:white;padding:8mm;box-sizing:border-box}
+        h1{text-align:center;font-size:20px;margin:0 0 7px;color:#4a3b00}
+        .meta{display:flex;justify-content:space-between;margin-bottom:7px;font-size:11px;font-weight:700}
+        table{width:100%;border-collapse:collapse;table-layout:fixed}
+        th,td{border:1px solid #d6c15c;padding:4px 3px;text-align:center;font-size:9.3px;line-height:1.25;word-break:keep-all;overflow:visible}
+        th{background:#ffd84d;font-weight:900}
+        td.name{text-align:left;white-space:normal;font-weight:700;word-break:break-word;overflow:visible}
+        td.memo{text-align:left;white-space:normal;word-break:break-word}
+        td.livePrice{font-weight:900;font-size:10.2px;color:#111}
+        .no{width:26px}.nameCol{width:42%}.charCol{width:9%}.catCol{width:8%}.priceCol{width:9%}.discCol{width:6%}.memoCol{width:8%}
+        .no-print{position:fixed;right:12px;top:12px;z-index:99;height:30px;border:1px solid #d0aa00;background:#ffd84d;font-weight:900;cursor:pointer}
+        @media print{html,body{background:white}.page{margin:0;width:auto;min-height:auto;padding:0}.no-print{display:none} thead{display:table-header-group} tr{page-break-inside:avoid}}
+      </style></head><body>
+      <button class="no-print" onclick="window.print()">PDF 저장/인쇄</button>
+      <div class="page">
+        <h1>라방상품목록</h1>
+        <div class="meta"><span>라방명: ${htmlSafe(selectedLiveSession.title || "")}</span><span>라방날짜: ${htmlSafe(selectedLiveSession.date || "")}</span></div>
+        <table>
+          <thead><tr><th class="no">순번</th><th class="nameCol">라방상품명</th><th class="charCol">캐릭터1</th><th class="charCol">캐릭터2</th><th class="catCol">카테고리</th><th class="priceCol">도매가</th><th class="priceCol">소비자가</th><th class="discCol">할인율</th><th class="priceCol">라방가</th><th class="memoCol">메모</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <script>setTimeout(()=>window.print(), 500)</script>
+    </body></html>`;
+    const win = window.open("", "_blank");
+    if (!win) return alert("팝업이 차단됐어요. 팝업 허용 후 다시 눌러줘.");
+    win.document.write(html);
+    win.document.close();
   }
 
   function downloadLiveShippingExcel() {
@@ -5424,6 +5484,8 @@ ${text}`;
               <label>도매가+마진%</label><input className="tinyInput" value={liveBulkMarginRate} onChange={(e) => setLiveBulkMarginRate(e.target.value)} placeholder="예:20" />
               <button type="button" onClick={applyLiveBulkMargin}>체크 마진가 적용</button>
               <button type="button" onClick={resetLiveBulkDiscount}>체크 가격초기화</button>
+              <button type="button" onClick={downloadLiveProductListExcel}>상품목록 엑셀</button>
+              <button type="button" onClick={openLiveProductListPdf}>상품목록 PDF</button>
             </div>
             <div className="tableWrap liveSelectedTable"><table><thead><tr><th>선택</th><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>도매가</th><th>정가</th><th>할인율</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
               {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
