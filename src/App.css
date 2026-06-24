@@ -4659,3 +4659,105 @@ input.liveNameInput {
   min-width: 0 !important;
   height: auto !important;
 }
+
+/* v146: 라방용 상품목록 컬럼 최종 비율 조정 */
+.liveSelectedTable table {
+  table-layout: fixed !important;
+  min-width: 1030px !important;
+}
+.liveProductBigSelected table {
+  table-layout: fixed !important;
+  min-width: 780px !important;
+}
+
+/* 기본 라방용 상품목록 12컬럼: 선택/상품명/캐릭터/배정/남음/도매가/정가/할인율/라방가/마진율/담기/삭제 */
+.liveSelectedTable th:nth-child(1),
+.liveSelectedTable td:nth-child(1) { width: 34px !important; min-width: 34px !important; max-width: 34px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveSelectedTable th:nth-child(2),
+.liveSelectedTable td:nth-child(2) { width: 300px !important; min-width: 300px !important; max-width: 300px !important; }
+.liveSelectedTable th:nth-child(3),
+.liveSelectedTable td:nth-child(3) { width: 78px !important; min-width: 78px !important; max-width: 78px !important; }
+.liveSelectedTable th:nth-child(4),
+.liveSelectedTable td:nth-child(4),
+.liveSelectedTable th:nth-child(5),
+.liveSelectedTable td:nth-child(5) { width: 42px !important; min-width: 42px !important; max-width: 42px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveSelectedTable th:nth-child(6),
+.liveSelectedTable td:nth-child(6),
+.liveSelectedTable th:nth-child(7),
+.liveSelectedTable td:nth-child(7) { width: 72px !important; min-width: 72px !important; max-width: 72px !important; }
+.liveSelectedTable th:nth-child(8),
+.liveSelectedTable td:nth-child(8) { width: 52px !important; min-width: 52px !important; max-width: 52px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveSelectedTable th:nth-child(9),
+.liveSelectedTable td:nth-child(9) { width: 92px !important; min-width: 92px !important; max-width: 92px !important; }
+.liveSelectedTable th:nth-child(10),
+.liveSelectedTable td:nth-child(10) { width: 56px !important; min-width: 56px !important; max-width: 56px !important; }
+.liveSelectedTable th:nth-child(11),
+.liveSelectedTable td:nth-child(11),
+.liveSelectedTable th:nth-child(12),
+.liveSelectedTable td:nth-child(12) { width: 52px !important; min-width: 52px !important; max-width: 52px !important; padding-left: 1px !important; padding-right: 1px !important; }
+
+.liveSelectedTable td:nth-child(4) input.tinyInput,
+.liveSelectedTable td:nth-child(8) input.tinyInput {
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  height: 20px !important;
+  padding: 0 2px !important;
+  text-align: center !important;
+}
+.liveSelectedTable td:nth-child(9) input {
+  width: 78px !important;
+  min-width: 78px !important;
+  max-width: 78px !important;
+  height: 20px !important;
+  padding: 0 3px !important;
+  text-align: right !important;
+}
+.liveSelectedTable td:nth-child(11) button,
+.liveSelectedTable td:nth-child(12) button {
+  min-width: 42px !important;
+  width: 42px !important;
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+}
+
+/* 크게보기 현재 라방용 상품 9컬럼: 선택/상품명/배정/남음/도매가/라방가/마진율/담기/삭제 */
+.liveProductBigSelected th:nth-child(1),
+.liveProductBigSelected td:nth-child(1) { width: 34px !important; min-width: 34px !important; max-width: 34px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveProductBigSelected th:nth-child(2),
+.liveProductBigSelected td:nth-child(2) { width: 330px !important; min-width: 330px !important; max-width: 330px !important; }
+.liveProductBigSelected th:nth-child(3),
+.liveProductBigSelected td:nth-child(3),
+.liveProductBigSelected th:nth-child(4),
+.liveProductBigSelected td:nth-child(4) { width: 42px !important; min-width: 42px !important; max-width: 42px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveProductBigSelected th:nth-child(5),
+.liveProductBigSelected td:nth-child(5) { width: 72px !important; min-width: 72px !important; max-width: 72px !important; }
+.liveProductBigSelected th:nth-child(6),
+.liveProductBigSelected td:nth-child(6) { width: 92px !important; min-width: 92px !important; max-width: 92px !important; }
+.liveProductBigSelected th:nth-child(7),
+.liveProductBigSelected td:nth-child(7) { width: 56px !important; min-width: 56px !important; max-width: 56px !important; }
+.liveProductBigSelected th:nth-child(8),
+.liveProductBigSelected td:nth-child(8),
+.liveProductBigSelected th:nth-child(9),
+.liveProductBigSelected td:nth-child(9) { width: 52px !important; min-width: 52px !important; max-width: 52px !important; padding-left: 1px !important; padding-right: 1px !important; }
+.liveProductBigSelected td:nth-child(3) input.tinyInput {
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  text-align: center !important;
+}
+.liveProductBigSelected td:nth-child(6) input {
+  width: 78px !important;
+  min-width: 78px !important;
+  max-width: 78px !important;
+  height: 20px !important;
+  padding: 0 3px !important;
+  text-align: right !important;
+}
+.liveProductBigSelected td:nth-child(8) button,
+.liveProductBigSelected td:nth-child(9) button {
+  min-width: 42px !important;
+  width: 42px !important;
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+}
