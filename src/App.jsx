@@ -4990,7 +4990,7 @@ ${text}`;
     if (!exportRows.length) return alert("다운로드할 라방상품이 없어요.");
 
     const rows = [[
-      "순번", "라방상품명", "캐릭터1", "캐릭터2", "카테고리", "배정",
+      "순번", "라방상품명", "캐릭터1", "캐릭터2", "배정",
       "도매가", "소비자가", "할인율(%)", "라방가", "메모"
     ]];
 
@@ -5000,7 +5000,6 @@ ${text}`;
         it.name,
         it.char1,
         it.char2,
-        it.category,
         it.assignedQty,
         it.wholesale,
         it.retail,
@@ -5012,7 +5011,7 @@ ${text}`;
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [
-      { wch: 6 }, { wch: 52 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 6 },
+      { wch: 6 }, { wch: 58 }, { wch: 12 }, { wch: 12 }, { wch: 6 },
       { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 14 },
     ];
     ws["!pageSetup"] = { paperSize: 9, orientation: "portrait", fitToWidth: 1, fitToHeight: 0 };
@@ -5029,14 +5028,13 @@ ${text}`;
 
     let rowNo = 1;
     const rows = groups.map((group) => {
-      const header = `<tr class="groupRow"><td colspan="10">${htmlSafe(group.key)} <span>총 배정 ${toInt(group.totalAssigned).toLocaleString()}개</span></td></tr>`;
+      const header = `<tr class="groupRow"><td colspan="9">${htmlSafe(group.key)} <span>총 배정 ${toInt(group.totalAssigned).toLocaleString()}개</span></td></tr>`;
       const body = group.rows.map((it) => `
         <tr>
           <td>${rowNo++}</td>
           <td class="name">${htmlSafe(it.name)}</td>
           <td>${htmlSafe(it.char1)}</td>
           <td>${htmlSafe(it.char2)}</td>
-          <td>${htmlSafe(it.category)}</td>
           <td class="assigned">${toInt(it.assignedQty).toLocaleString()}</td>
           <td>${money(it.wholesale)}</td>
           <td>${money(it.retail)}</td>
@@ -5048,31 +5046,31 @@ ${text}`;
 
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${mmdd(selectedLiveSession.date)}_라방상품목록</title>
       <style>
-        @page{size:A4 portrait;margin:8mm}
+        @page{size:A4 portrait;margin:8mm 8mm 14mm 8mm}
         html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00}
-        .page{width:210mm;min-height:297mm;margin:8mm auto;background:white;padding:8mm;box-sizing:border-box}
+        .page{width:210mm;min-height:297mm;margin:8mm auto;background:white;padding:8mm 8mm 16mm 8mm;box-sizing:border-box}
         h1{text-align:center;font-size:20px;margin:0 0 7px;color:#4a3b00}
         .meta{display:flex;justify-content:space-between;margin-bottom:7px;font-size:11px;font-weight:700}
         table{width:100%;border-collapse:collapse;table-layout:fixed;page-break-inside:auto}
         th,td{border:1px solid #d6c15c;padding:4px 3px;text-align:center;font-size:9.1px;line-height:1.25;word-break:keep-all;overflow:visible;vertical-align:middle}
         th{background:#ffd84d;font-weight:900}
         thead{display:table-header-group}
-        tr{page-break-inside:avoid;break-inside:avoid}
+        tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} .groupRow{page-break-after:avoid !important} .groupRow + tr{page-break-before:avoid !important}
         td.name{text-align:left;white-space:normal;font-weight:700;word-break:break-word;overflow:visible}
         td.assigned{font-weight:900;color:#111}
         td.livePrice{font-weight:900;font-size:10px;color:#111}
         .groupRow td{background:#fff2b3 !important;font-weight:900;text-align:left;font-size:11px;padding:5px 6px;border-top:2px solid #d0aa00;color:#4a3b00}
         .groupRow span{float:right;font-size:10px;color:#7a5a00}
-        .no{width:24px}.nameCol{width:39%}.charCol{width:8.5%}.catCol{width:7.5%}.qtyCol{width:5%}.priceCol{width:8.5%}.discCol{width:6%}
+        .no{width:24px}.nameCol{width:46%}.charCol{width:9%}.qtyCol{width:5%}.priceCol{width:9%}.discCol{width:6%}
         .no-print{position:fixed;right:12px;top:12px;z-index:99;height:30px;border:1px solid #d0aa00;background:#ffd84d;font-weight:900;cursor:pointer}
-        @media print{html,body{background:white}.page{margin:0;width:auto;min-height:auto;padding:0}.no-print{display:none} thead{display:table-header-group} tfoot{display:table-footer-group} tr{page-break-inside:avoid;break-inside:avoid}}
+        @media print{html,body{background:white}.page{margin:0;width:auto;min-height:auto;padding:0 0 12mm 0}.no-print{display:none} thead{display:table-header-group} tfoot{display:table-footer-group} tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} .groupRow{page-break-after:avoid !important} .groupRow + tr{page-break-before:avoid !important}}
       </style></head><body>
       <button class="no-print" onclick="window.print()">PDF 저장/인쇄</button>
       <div class="page">
         <h1>라방상품목록</h1>
         <div class="meta"><span>라방명: ${htmlSafe(selectedLiveSession.title || "")}</span><span>라방날짜: ${htmlSafe(selectedLiveSession.date || "")}</span></div>
         <table>
-          <thead><tr><th class="no">순번</th><th class="nameCol">라방상품명</th><th class="charCol">캐릭터1</th><th class="charCol">캐릭터2</th><th class="catCol">카테고리</th><th class="qtyCol">배정</th><th class="priceCol">도매가</th><th class="priceCol">소비자가</th><th class="discCol">할인율</th><th class="priceCol">라방가</th></tr></thead>
+          <thead><tr><th class="no">순번</th><th class="nameCol">라방상품명</th><th class="charCol">캐릭터1</th><th class="charCol">캐릭터2</th><th class="qtyCol">배정</th><th class="priceCol">도매가</th><th class="priceCol">소비자가</th><th class="discCol">할인율</th><th class="priceCol">라방가</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
