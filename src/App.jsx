@@ -352,6 +352,42 @@ function LiveProductSearchBar({ value, onSearch }) {
   );
 }
 
+
+function LiveDraftInput({ value, onDraftChange, onCommit, className = "", title = "", suffix = "", inputMode }) {
+  const [localValue, setLocalValue] = useState(value ?? "");
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) setLocalValue(value ?? "");
+  }, [value]);
+
+  function handleChange(e) {
+    const next = e.target.value;
+    setLocalValue(next);
+    onDraftChange?.(next);
+  }
+
+  function handleBlur() {
+    focusedRef.current = false;
+    onCommit?.();
+  }
+
+  return (
+    <span className="liveDraftInputWrap">
+      <input
+        className={className}
+        value={localValue}
+        title={title}
+        inputMode={inputMode}
+        onFocus={() => { focusedRef.current = true; }}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      />
+      {suffix ? <span className="liveInputSuffix">{suffix}</span> : null}
+    </span>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState("대시보드");
   const [geminiOpen, setGeminiOpen] = useState(false);
@@ -514,6 +550,8 @@ export default function App() {
   const [liveOrderDrafts, setLiveOrderDrafts] = useState({});
   const [selectedLiveInvoiceIds, setSelectedLiveInvoiceIds] = useState([]);
   const [selectedLiveProductIdsForBulk, setSelectedLiveProductIdsForBulk] = useState([]);
+  const [liveItemDrafts, setLiveItemDrafts] = useState({});
+  const liveItemDraftTimersRef = useRef({});
   const [liveBulkDiscountRate, setLiveBulkDiscountRate] = useState("");
   const [liveBulkMarginRate, setLiveBulkMarginRate] = useState("");
   const [memberInfoSearch, setMemberInfoSearch] = useState("");
@@ -3876,6 +3914,12 @@ ${text}`;
     setLiveBulkMarginRate("");
   }, [selectedLiveSession?.id]);
 
+  useEffect(() => {
+    setLiveItemDrafts({});
+    Object.values(liveItemDraftTimersRef.current || {}).forEach((timer) => clearTimeout(timer));
+    liveItemDraftTimersRef.current = {};
+  }, [selectedLiveSession?.id]);
+
   const liveAddedProductMap = useMemo(() => {
     const map = new Map();
     for (const item of selectedLiveProducts || []) {
@@ -4099,9 +4143,45 @@ ${text}`;
     try {
       await saveLiveSessionDb(nextSession);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s)));
+      setLiveItemDrafts((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
     } catch (error) {
       alert("라방 상품 수정 실패: " + error.message);
     }
+  }
+
+  function liveItemValue(item, key) {
+    const draft = liveItemDrafts[String(item.id)] || liveItemDrafts[item.id] || {};
+    return draft[key] ?? item[key] ?? "";
+  }
+
+  function queueLiveItemUpdate(item, patch, delay = 450) {
+    if (!item?.id) return;
+    const itemId = item.id;
+    setLiveItemDrafts((prev) => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] || {}), ...patch }
+    }));
+    if (liveItemDraftTimersRef.current[itemId]) clearTimeout(liveItemDraftTimersRef.current[itemId]);
+    liveItemDraftTimersRef.current[itemId] = setTimeout(() => {
+      updateLiveItem(itemId, { ...(liveItemDrafts[itemId] || {}), ...patch });
+      delete liveItemDraftTimersRef.current[itemId];
+    }, delay);
+  }
+
+  function flushLiveItemDraft(item) {
+    if (!item?.id) return;
+    const itemId = item.id;
+    const draft = liveItemDrafts[itemId];
+    if (!draft || Object.keys(draft).length === 0) return;
+    if (liveItemDraftTimersRef.current[itemId]) {
+      clearTimeout(liveItemDraftTimersRef.current[itemId]);
+      delete liveItemDraftTimersRef.current[itemId];
+    }
+    updateLiveItem(itemId, draft);
   }
 
   async function changeLiveQty(item, value) {
@@ -4131,14 +4211,14 @@ ${text}`;
     const price = toInt(value);
     const retail = toInt(item.retail);
     const discountRate = retail > 0 && price > 0 ? Math.max(0, Math.round((1 - price / retail) * 1000) / 10) : 0;
-    updateLiveItem(item.id, { livePrice: value, discountRate: String(discountRate) });
+    queueLiveItemUpdate(item, { livePrice: value, discountRate: String(discountRate) });
   }
 
   function changeLiveDiscount(item, value) {
     const rate = Number(value || 0);
     const retail = toInt(item.retail);
     const price = Math.round(retail * (1 - rate / 100));
-    updateLiveItem(item.id, { discountRate: value, livePrice: price });
+    queueLiveItemUpdate(item, { discountRate: value, livePrice: price });
   }
 
   function toggleLiveProductBulkSelect(itemId) {
@@ -4869,7 +4949,7 @@ ${text}`;
       wholesale: toInt(it.wholesale),
       retail: toInt(it.retail),
       discountRate: toNum(it.discountRate) > 0 ? toNum(it.discountRate) : "",
-      livePrice: toInt(it.livePrice),
+      livePrice: toInt(liveItemValue(it, "livePrice")),
       memo: it.memo || "",
     }));
   }
@@ -5335,7 +5415,7 @@ ${text}`;
               <button type="button" onClick={openLiveProductListPdf}>상품목록 PDF</button>
             </div>
             <div className="tableWrap liveSelectedTable"><table><thead><tr><th>선택</th><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>도매가</th><th>정가</th><th>할인율</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-              {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+              {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><LiveDraftInput className="liveNameInput" value={liveItemValue(it, "name")} onDraftChange={(value) => queueLiveItemUpdate(it, { name: value })} onCommit={() => flushLiveItemDraft(it)} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td>{money(it.retail)}</td><td><LiveDraftInput className="tinyInput" value={liveItemValue(it, "discountRate")} onDraftChange={(value) => changeLiveDiscount(it, value)} onCommit={() => flushLiveItemDraft(it)} inputMode="decimal" suffix="%" /></td><td><LiveDraftInput className="livePriceInput" value={liveItemValue(it, "livePrice")} onDraftChange={(value) => changeLivePrice(it, value)} onCommit={() => flushLiveItemDraft(it)} inputMode="numeric" /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(liveItemValue(it, "livePrice")) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
               {selectedLiveProducts.length === 0 && <tr><td colSpan="12" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
             </tbody></table></div>
           </div>
@@ -5361,7 +5441,7 @@ ${text}`;
                   <button type="button" onClick={resetLiveBulkDiscount}>초기화</button>
                 </div>
                 <div className="tableWrap liveProductBigSelected compactRows"><table><thead><tr><th>선택</th><th>상품명</th><th>배정</th><th>남음</th><th>도매가</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-                  {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+                  {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><LiveDraftInput className="liveNameInput" value={liveItemValue(it, "name")} onDraftChange={(value) => queueLiveItemUpdate(it, { name: value })} onCommit={() => flushLiveItemDraft(it)} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td><LiveDraftInput className="livePriceInput" value={liveItemValue(it, "livePrice")} onDraftChange={(value) => changeLivePrice(it, value)} onCommit={() => flushLiveItemDraft(it)} inputMode="numeric" /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(liveItemValue(it, "livePrice")) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
                   {selectedLiveProducts.length === 0 && <tr><td colSpan="9" className="empty">라방에 올릴 상품이 없어요.</td></tr>}
                 </tbody></table></div>
               </div>

@@ -4795,3 +4795,118 @@ input.liveNameInput {
 .liveProductBigSelected td:nth-child(3) input.tinyInput { width: 28px !important; min-width: 28px !important; max-width: 28px !important; padding: 0 1px !important; }
 .liveProductBigSelected td:nth-child(6) input { width: 84px !important; min-width: 84px !important; max-width: 84px !important; text-align: right !important; }
 .liveProductBigSelected td:nth-child(8) button, .liveProductBigSelected td:nth-child(9) button { width: 36px !important; min-width: 36px !important; padding-left: 1px !important; padding-right: 1px !important; }
+
+/* v151: 재고관리 검색 결과가 적어도 행 높이 고정 */
+.inventoryListPanel .inventoryResultArea .productResultFixedRows {
+  display: block !important;
+  align-content: flex-start !important;
+}
+.inventoryListPanel .inventoryResultArea .productTable {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  table-layout: fixed !important;
+}
+.inventoryListPanel .inventoryResultArea .productTable tbody,
+.inventoryListPanel .inventoryResultArea .productTable thead {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+.inventoryListPanel .inventoryResultArea .productTable tbody tr,
+.inventoryListPanel .inventoryResultArea .productTable tbody td,
+.inventoryListPanel .inventoryResultArea .productTable thead th {
+  height: 31px !important;
+  min-height: 31px !important;
+  max-height: 36px !important;
+  line-height: 1.25 !important;
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+  vertical-align: middle !important;
+}
+.inventoryListPanel .inventoryResultArea .productTable td:nth-child(2),
+.inventoryListPanel .inventoryResultArea .productTable .productNameCell {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* v151: 라방상품 입력칸 타이핑 안정화 */
+.liveNameInput,
+.liveSelectedTable input,
+.liveProductBigSelected input {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+}
+.liveSelectedTable input:focus,
+.liveProductBigSelected input:focus {
+  outline: 2px solid #f0c000 !important;
+  outline-offset: 0 !important;
+}
+.liveSelectedTable td,
+.liveProductBigSelected td {
+  vertical-align: middle !important;
+}
+
+/* v152: 수동박스 상품검색 행 높이 고정 + 라방 입력 커서 안정화 */
+.manualProductListPanel .productResultFixedRows,
+.composeConditionResultArea .productResultFixedRows {
+  display: block !important;
+  align-content: flex-start !important;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+}
+.manualProductListPanel .productResultFixedRows .productTable,
+.composeConditionResultArea .productResultFixedRows .productTable {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  table-layout: fixed !important;
+}
+.manualProductListPanel .productResultFixedRows .productTable tbody,
+.composeConditionResultArea .productResultFixedRows .productTable tbody,
+.manualProductListPanel .productResultFixedRows .productTable thead,
+.composeConditionResultArea .productResultFixedRows .productTable thead {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+.manualProductListPanel .productResultFixedRows .productTable tbody tr,
+.composeConditionResultArea .productResultFixedRows .productTable tbody tr,
+.manualProductListPanel .productResultFixedRows .productTable tbody td,
+.composeConditionResultArea .productResultFixedRows .productTable tbody td,
+.manualProductListPanel .productResultFixedRows .productTable thead th,
+.composeConditionResultArea .productResultFixedRows .productTable thead th {
+  height: 31px !important;
+  min-height: 31px !important;
+  max-height: 36px !important;
+  line-height: 1.25 !important;
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+  vertical-align: middle !important;
+}
+.manualProductListPanel .productResultFixedRows .productTable td:nth-child(2),
+.composeConditionResultArea .productResultFixedRows .productTable td:nth-child(2),
+.manualProductListPanel .productResultFixedRows .productTable .productNameCell,
+.composeConditionResultArea .productResultFixedRows .productTable .productNameCell {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.liveDraftInputWrap {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.liveDraftInputWrap .liveNameInput,
+.liveDraftInputWrap .livePriceInput,
+.liveDraftInputWrap .tinyInput {
+  max-width: 100%;
+}
+.liveInputSuffix {
+  margin-left: 2px;
+  font-size: 10px;
+  flex: 0 0 auto;
+}
