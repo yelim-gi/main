@@ -5046,16 +5046,16 @@ ${text}`;
 
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${mmdd(selectedLiveSession.date)}_라방상품목록</title>
       <style>
-        @page{size:A4 portrait;margin:8mm 8mm 14mm 8mm}
+        @page{size:A4 portrait;margin:8mm 8mm 28mm 8mm}
         html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00}
-        .page{width:210mm;min-height:297mm;margin:8mm auto;background:white;padding:8mm 8mm 16mm 8mm;box-sizing:border-box}
+        .page{width:210mm;min-height:297mm;margin:8mm auto;background:white;padding:8mm 8mm 28mm 8mm;box-sizing:border-box}
         h1{text-align:center;font-size:20px;margin:0 0 7px;color:#4a3b00}
         .meta{display:flex;justify-content:space-between;margin-bottom:7px;font-size:11px;font-weight:700}
         table{width:100%;border-collapse:collapse;table-layout:fixed;page-break-inside:auto}
         th,td{border:1px solid #d6c15c;padding:4px 3px;text-align:center;font-size:9.1px;line-height:1.25;word-break:keep-all;overflow:visible;vertical-align:middle}
         th{background:#ffd84d;font-weight:900}
         thead{display:table-header-group}
-        tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} .groupRow{page-break-after:avoid !important} .groupRow + tr{page-break-before:avoid !important}
+        tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr:last-child{margin-bottom:28mm}.groupRow{page-break-after:avoid !important;break-after:avoid !important}.groupRow + tr{page-break-before:avoid !important;break-before:avoid !important}
         td.name{text-align:left;white-space:normal;font-weight:700;word-break:break-word;overflow:visible}
         td.assigned{font-weight:900;color:#111}
         td.livePrice{font-weight:900;font-size:10px;color:#111}
@@ -5063,7 +5063,7 @@ ${text}`;
         .groupRow span{float:right;font-size:10px;color:#7a5a00}
         .no{width:24px}.nameCol{width:46%}.charCol{width:9%}.qtyCol{width:5%}.priceCol{width:9%}.discCol{width:6%}
         .no-print{position:fixed;right:12px;top:12px;z-index:99;height:30px;border:1px solid #d0aa00;background:#ffd84d;font-weight:900;cursor:pointer}
-        @media print{html,body{background:white}.page{margin:0;width:auto;min-height:auto;padding:0 0 12mm 0}.no-print{display:none} thead{display:table-header-group} tfoot{display:table-footer-group} tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} .groupRow{page-break-after:avoid !important} .groupRow + tr{page-break-before:avoid !important}}
+        @media print{html,body{background:white}.page{margin:0;width:auto;min-height:auto;padding:0 0 28mm 0}.no-print{display:none} thead{display:table-header-group} tfoot{display:table-footer-group} tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr:last-child{margin-bottom:28mm}.groupRow{page-break-after:avoid !important;break-after:avoid !important}.groupRow + tr{page-break-before:avoid !important;break-before:avoid !important}}
       </style></head><body>
       <button class="no-print" onclick="window.print()">PDF 저장/인쇄</button>
       <div class="page">
