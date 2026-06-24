@@ -5011,6 +5011,52 @@ ${text}`;
     alert("주문을 합배송 묶음으로 연결했어요.");
   }
 
+  function downloadLiveProductListExcel() {
+    if (!selectedLiveSession) return alert("라방을 먼저 선택해줘.");
+    const items = selectedLiveSession.products || [];
+    if (!items.length) return alert("다운로드할 라방상품이 없어요.");
+
+    const rows = [[
+      "순번", "라방상품명", "원본상품명", "캐릭터1", "캐릭터2", "카테고리",
+      "배정수량", "남은수량", "판매수량", "도매가", "소비자가", "할인율(%)", "라방가", "마진율(%)", "메모"
+    ]];
+
+    items.forEach((it, idx) => {
+      const liveQty = toInt(it.liveQty);
+      const remaining = toInt(it.remainingQty);
+      const sold = Math.max(0, liveQty - remaining);
+      const wholesale = toInt(it.wholesale);
+      const livePrice = toInt(it.livePrice);
+      const marginRate = wholesale > 0 ? ((livePrice - wholesale) / wholesale) * 100 : 0;
+      rows.push([
+        idx + 1,
+        it.name || "",
+        it.originalName || it.name || "",
+        it.char1 || "",
+        it.char2 || "",
+        it.category || "",
+        liveQty,
+        remaining,
+        sold,
+        wholesale,
+        toInt(it.retail),
+        toNum(it.discountRate),
+        livePrice,
+        wholesale > 0 ? Number(marginRate.toFixed(1)) : "",
+        it.memo || "",
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 6 }, { wch: 34 }, { wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+      { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 11 }, { wch: 10 }, { wch: 24 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "라방상품목록");
+    XLSX.writeFile(wb, `${mmdd(selectedLiveSession.date)}_라방상품목록.xlsx`);
+  }
+
   function downloadLiveShippingExcel() {
     const targets = liveOrders.filter((o) => selectedLiveSession && String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt && ["입금확인", "송장입력"].includes(String(o.status || "")));
     if (!targets.length) return alert("택배접수로 내보낼 입금확인/송장입력 주문이 없어요.");
@@ -5347,7 +5393,7 @@ ${text}`;
               <div><span>미입금</span><b>{money(sales.unpaid)}</b></div>
               <div><span>킵 D-2/출고필요</span><b>{sales.keepDue.toLocaleString()}건</b></div>
             </div>
-            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={restoreLegacyLiveReservedStockForSelectedSession}>구버전 라방예약 재고복구</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 재고 원복</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제</button></div>
+            <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={downloadLiveProductListExcel}>라방상품목록 엑셀</button><button type="button" onClick={restoreLegacyLiveReservedStockForSelectedSession}>구버전 라방예약 재고복구</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 재고 원복</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제</button></div>
           </>}
         </div>
 
