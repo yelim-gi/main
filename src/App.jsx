@@ -513,6 +513,9 @@ export default function App() {
   const [editingLiveOrderId, setEditingLiveOrderId] = useState("");
   const [liveOrderDrafts, setLiveOrderDrafts] = useState({});
   const [selectedLiveInvoiceIds, setSelectedLiveInvoiceIds] = useState([]);
+  const [selectedLiveProductIdsForBulk, setSelectedLiveProductIdsForBulk] = useState([]);
+  const [liveBulkDiscountRate, setLiveBulkDiscountRate] = useState("");
+  const [liveBulkMarginRate, setLiveBulkMarginRate] = useState("");
   const [memberInfoSearch, setMemberInfoSearch] = useState("");
   const [selectedMemberInfoId, setSelectedMemberInfoId] = useState("");
   const [selectedMemberOrderIds, setSelectedMemberOrderIds] = useState([]);
@@ -4024,6 +4027,12 @@ ${text}`;
 
   const selectedLiveProducts = selectedLiveSession?.products || [];
 
+  useEffect(() => {
+    setSelectedLiveProductIdsForBulk([]);
+    setLiveBulkDiscountRate("");
+    setLiveBulkMarginRate("");
+  }, [selectedLiveSession?.id]);
+
   const liveAddedProductMap = useMemo(() => {
     const map = new Map();
     for (const item of selectedLiveProducts || []) {
@@ -4287,6 +4296,58 @@ ${text}`;
     const retail = toInt(item.retail);
     const price = Math.round(retail * (1 - rate / 100));
     updateLiveItem(item.id, { discountRate: value, livePrice: price });
+  }
+
+  function toggleLiveProductBulkSelect(itemId) {
+    setSelectedLiveProductIdsForBulk((prev) => prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]);
+  }
+
+  function selectAllLiveProductsForBulk() {
+    setSelectedLiveProductIdsForBulk((selectedLiveProducts || []).map((it) => it.id));
+  }
+
+  function clearLiveProductBulkSelect() {
+    setSelectedLiveProductIdsForBulk([]);
+  }
+
+  async function updateLiveItemsBulk(patcher) {
+    if (!selectedLiveSession) return alert("라방을 먼저 선택해줘.");
+    const ids = new Set(selectedLiveProductIdsForBulk.map(String));
+    if (ids.size === 0) return alert("적용할 라방상품을 체크해줘.");
+    const nextProducts = (selectedLiveSession.products || []).map((it) => ids.has(String(it.id)) ? { ...it, ...patcher(it) } : it);
+    const nextSession = { ...selectedLiveSession, products: nextProducts };
+    try {
+      await saveLiveSessionDb(nextSession);
+      preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s)));
+    } catch (error) {
+      alert("라방상품 일괄 수정 실패: " + error.message);
+    }
+  }
+
+  async function applyLiveBulkDiscount() {
+    const rate = Number(liveBulkDiscountRate || 0);
+    await updateLiveItemsBulk((it) => {
+      const retail = toInt(it.retail);
+      const price = Math.max(0, Math.round(retail * (1 - rate / 100)));
+      return { discountRate: String(liveBulkDiscountRate || "0"), livePrice: price };
+    });
+  }
+
+  async function applyLiveBulkMargin() {
+    const rate = Number(liveBulkMarginRate || 0);
+    await updateLiveItemsBulk((it) => {
+      const wholesale = toInt(it.wholesale);
+      const price = Math.max(0, Math.round(wholesale * (1 + rate / 100)));
+      const retail = toInt(it.retail);
+      const discountRate = retail > 0 && price > 0 ? Math.max(0, Math.round((1 - price / retail) * 1000) / 10) : 0;
+      return { livePrice: price, discountRate: String(discountRate) };
+    });
+  }
+
+  async function resetLiveBulkDiscount() {
+    await updateLiveItemsBulk((it) => ({ livePrice: toInt(it.retail), discountRate: "0" }));
+    setLiveBulkDiscountRate("");
+    setLiveBulkMarginRate("");
   }
 
   async function removeLiveItem(itemId) {
@@ -5308,9 +5369,19 @@ ${text}`;
               {liveFilteredProducts.length === 0 && <tr><td colSpan="7" className="empty">상품이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>라방용 상품 목록</h3>
-            <div className="tableWrap liveSelectedTable"><table><thead><tr><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>도매가</th><th>정가</th><th>할인율</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-              {selectedLiveProducts.map((it) => <tr key={it.id}><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
-              {selectedLiveProducts.length === 0 && <tr><td colSpan="11" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
+            <div className="liveBulkPriceTools">
+              <span className="statusLine">체크 {selectedLiveProductIdsForBulk.length.toLocaleString()}개</span>
+              <button type="button" onClick={selectAllLiveProductsForBulk}>전체선택</button>
+              <button type="button" onClick={clearLiveProductBulkSelect}>선택해제</button>
+              <label>할인율%</label><input className="tinyInput" value={liveBulkDiscountRate} onChange={(e) => setLiveBulkDiscountRate(e.target.value)} placeholder="예:10" />
+              <button type="button" onClick={applyLiveBulkDiscount}>체크 할인율 적용</button>
+              <label>도매가+마진%</label><input className="tinyInput" value={liveBulkMarginRate} onChange={(e) => setLiveBulkMarginRate(e.target.value)} placeholder="예:20" />
+              <button type="button" onClick={applyLiveBulkMargin}>체크 마진가 적용</button>
+              <button type="button" onClick={resetLiveBulkDiscount}>체크 가격초기화</button>
+            </div>
+            <div className="tableWrap liveSelectedTable"><table><thead><tr><th>선택</th><th>상품명</th><th>캐릭터</th><th>배정</th><th>남음</th><th>도매가</th><th>정가</th><th>할인율</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
+              {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td>{[it.char1, it.char2].filter(Boolean).join("/")}</td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td>{money(it.retail)}</td><td><input className="tinyInput" value={it.discountRate} onChange={(e) => changeLiveDiscount(it, e.target.value)} />%</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+              {selectedLiveProducts.length === 0 && <tr><td colSpan="12" className="empty">라방에 올릴 상품을 추가해줘.</td></tr>}
             </tbody></table></div>
           </div>
 
@@ -5324,9 +5395,19 @@ ${text}`;
                   {liveFilteredProducts.length === 0 && <tr><td colSpan="10" className="empty">상품이 없어요.</td></tr>}
                 </tbody></table></div>
                 <h3>현재 라방용 상품</h3>
-                <div className="tableWrap liveProductBigSelected compactRows"><table><thead><tr><th>상품명</th><th>배정</th><th>남음</th><th>도매가</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
-                  {selectedLiveProducts.map((it) => <tr key={it.id}><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
-                  {selectedLiveProducts.length === 0 && <tr><td colSpan="8" className="empty">라방에 올릴 상품이 없어요.</td></tr>}
+                <div className="liveBulkPriceTools">
+                  <span className="statusLine">체크 {selectedLiveProductIdsForBulk.length.toLocaleString()}개</span>
+                  <button type="button" onClick={selectAllLiveProductsForBulk}>전체선택</button>
+                  <button type="button" onClick={clearLiveProductBulkSelect}>선택해제</button>
+                  <label>할인율%</label><input className="tinyInput" value={liveBulkDiscountRate} onChange={(e) => setLiveBulkDiscountRate(e.target.value)} />
+                  <button type="button" onClick={applyLiveBulkDiscount}>체크 할인율 적용</button>
+                  <label>도매가+마진%</label><input className="tinyInput" value={liveBulkMarginRate} onChange={(e) => setLiveBulkMarginRate(e.target.value)} />
+                  <button type="button" onClick={applyLiveBulkMargin}>체크 마진가 적용</button>
+                  <button type="button" onClick={resetLiveBulkDiscount}>초기화</button>
+                </div>
+                <div className="tableWrap liveProductBigSelected compactRows"><table><thead><tr><th>선택</th><th>상품명</th><th>배정</th><th>남음</th><th>도매가</th><th>라방가</th><th>마진율</th><th>담기</th><th>삭제</th></tr></thead><tbody>
+                  {selectedLiveProducts.map((it) => <tr key={it.id}><td><input type="checkbox" checked={selectedLiveProductIdsForBulk.includes(it.id)} onChange={() => toggleLiveProductBulkSelect(it.id)} /></td><td title={`원본: ${it.originalName || it.name}`}><input className="liveNameInput" value={it.name || ""} onChange={(e) => updateLiveItem(it.id, { name: e.target.value })} title={`원본 상품명: ${it.originalName || it.name}`} /></td><td><input className="tinyInput" value={it.liveQty} onChange={(e) => changeLiveQty(it, e.target.value)} /></td><td>{it.remainingQty}</td><td>{money(it.wholesale)}</td><td><input value={it.livePrice} onChange={(e) => changeLivePrice(it, e.target.value)} /></td><td>{toInt(it.wholesale) > 0 ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1) + "%" : "-"}</td><td><button type="button" onClick={() => addLiveItemToCart(it)}>담기</button></td><td><button type="button" className="deleteBtn" onClick={() => removeLiveItem(it.id)}>삭제</button></td></tr>)}
+                  {selectedLiveProducts.length === 0 && <tr><td colSpan="9" className="empty">라방에 올릴 상품이 없어요.</td></tr>}
                 </tbody></table></div>
               </div>
             </div>, document.body)}
