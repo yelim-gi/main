@@ -5029,18 +5029,23 @@ ${text}`;
     let rowNo = 1;
     const rows = groups.map((group) => {
       const header = `<tr class="groupRow"><td colspan="9">${htmlSafe(group.key)} <span>총 배정 ${toInt(group.totalAssigned).toLocaleString()}개</span></td></tr>`;
-      const body = group.rows.map((it) => `
+      const body = group.rows.map((it) => {
+        const marginRate = toInt(it.wholesale) > 0
+          ? (((toInt(it.livePrice) - toInt(it.wholesale)) / toInt(it.wholesale)) * 100).toFixed(1).replace(/\.0$/, "") + "%"
+          : "";
+        return `
         <tr>
           <td>${rowNo++}</td>
           <td class="name">${htmlSafe(it.name)}</td>
-          <td>${htmlSafe(it.char1)}</td>
           <td>${htmlSafe(it.char2)}</td>
           <td class="assigned">${toInt(it.assignedQty).toLocaleString()}</td>
           <td>${money(it.wholesale)}</td>
           <td>${money(it.retail)}</td>
-          <td>${toNum(it.discountRate) > 0 ? htmlSafe(String(it.discountRate)) + "%" : ""}</td>
+          <td>${marginRate}</td>
           <td class="livePrice">${money(it.livePrice)}</td>
-        </tr>`).join("");
+          <td class="memo">${htmlSafe(it.memo || "")}</td>
+        </tr>`;
+      }).join("");
       return header + body;
     }).join("");
 
@@ -5061,7 +5066,8 @@ ${text}`;
         td.livePrice{font-weight:900;font-size:10px;color:#111}
         .groupRow td{background:#fff2b3 !important;font-weight:900;text-align:left;font-size:11px;padding:5px 6px;border-top:2px solid #d0aa00;color:#4a3b00}
         .groupRow span{float:right;font-size:10px;color:#7a5a00}
-        .no{width:24px}.nameCol{width:46%}.charCol{width:9%}.qtyCol{width:5%}.priceCol{width:9%}.discCol{width:6%}
+        .no{width:24px}.nameCol{width:43%}.charCol{width:9%}.qtyCol{width:5%}.priceCol{width:8%}.marginCol{width:6%}.memoCol{width:9%}
+        td.memo{text-align:left;white-space:normal;word-break:break-word;color:#5c4a00}
         .no-print{position:fixed;right:12px;top:12px;z-index:99;height:30px;border:1px solid #d0aa00;background:#ffd84d;font-weight:900;cursor:pointer}
         @media print{html,body{background:white}.page{margin:0;width:auto;min-height:auto;padding:0 0 28mm 0}.no-print{display:none} thead{display:table-header-group} tfoot{display:table-footer-group} tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr{page-break-inside:avoid !important;break-inside:avoid !important} tbody tr:last-child{margin-bottom:28mm}.groupRow{page-break-after:avoid !important;break-after:avoid !important}.groupRow + tr{page-break-before:avoid !important;break-before:avoid !important}}
       </style></head><body>
@@ -5070,7 +5076,7 @@ ${text}`;
         <h1>라방상품목록</h1>
         <div class="meta"><span>라방명: ${htmlSafe(selectedLiveSession.title || "")}</span><span>라방날짜: ${htmlSafe(selectedLiveSession.date || "")}</span></div>
         <table>
-          <thead><tr><th class="no">순번</th><th class="nameCol">라방상품명</th><th class="charCol">캐릭터1</th><th class="charCol">캐릭터2</th><th class="qtyCol">배정</th><th class="priceCol">도매가</th><th class="priceCol">소비자가</th><th class="discCol">할인율</th><th class="priceCol">라방가</th></tr></thead>
+          <thead><tr><th class="no">순번</th><th class="nameCol">라방상품명</th><th class="charCol">캐릭터2</th><th class="qtyCol">배정</th><th class="priceCol">도매가</th><th class="priceCol">소비자가</th><th class="marginCol">마진율</th><th class="priceCol">라방가</th><th class="memoCol">메모</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
