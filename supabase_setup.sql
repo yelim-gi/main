@@ -244,3 +244,22 @@ alter table live_orders add column if not exists combined_group_id text;
 -- v125 point rollback safety
 alter table live_orders add column if not exists member_points_before integer default 0;
 alter table live_orders add column if not exists member_points_after integer default 0;
+
+-- v161 event prize management
+create table if not exists event_prizes (
+  id text primary key,
+  created_at text,
+  updated_at text,
+  product_id text,
+  name text,
+  qty integer default 1,
+  event_name text,
+  memo text,
+  status text default '대기',
+  completed_at text,
+  canceled_at text
+);
+
+alter table event_prizes enable row level security;
+drop policy if exists "authenticated event_prizes" on event_prizes;
+create policy "authenticated event_prizes" on event_prizes for all to authenticated using (true) with check (true);
