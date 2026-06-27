@@ -528,6 +528,7 @@ export default function App() {
   const [selectedLiveSessionId, setSelectedLiveSessionId] = useState(null);
   const [liveProductSearch, setLiveProductSearch] = useState("");
   const [liveSelectedProductSearch, setLiveSelectedProductSearch] = useState("");
+  const [liveSelectedChar1Filter, setLiveSelectedChar1Filter] = useState("전체");
   const [liveProductModalOpen, setLiveProductModalOpen] = useState(false);
   const [liveStatusFilter, setLiveStatusFilter] = useState("전체");
   const [livePaymentFilter, setLivePaymentFilter] = useState("전체");
@@ -3913,6 +3914,8 @@ ${text}`;
     setSelectedLiveProductIdsForBulk([]);
     setLiveBulkDiscountRate("");
     setLiveBulkMarginRate("");
+    setLiveSelectedProductSearch("");
+    setLiveSelectedChar1Filter("전체");
   }, [selectedLiveSession?.id]);
 
   useEffect(() => {
@@ -3938,10 +3941,21 @@ ${text}`;
 
   const isProductAddedToCurrentLive = (productId) => liveAddedProductMap.has(String(productId));
 
+  const liveSelectedChar1Options = useMemo(() => {
+    const values = new Set();
+    (selectedLiveProducts || []).forEach((it) => {
+      splitMultiValues(it.char1).forEach((v) => { if (v) values.add(v); });
+    });
+    return ["전체", ...Array.from(values).sort((a, b) => String(a).localeCompare(String(b), "ko"))];
+  }, [selectedLiveProducts]);
+
   const filteredSelectedLiveProducts = useMemo(() => {
     const kw = liveSelectedProductSearch.trim().toLowerCase();
-    if (!kw) return selectedLiveProducts;
     return selectedLiveProducts.filter((it) => {
+      const char1Values = splitMultiValues(it.char1);
+      const char1Ok = liveSelectedChar1Filter === "전체" || char1Values.includes(liveSelectedChar1Filter);
+      if (!char1Ok) return false;
+      if (!kw) return true;
       const name = String(liveItemValue(it, "name") || "").toLowerCase();
       const originalName = String(it.originalName || "").toLowerCase();
       const char1 = String(it.char1 || "").toLowerCase();
@@ -3949,7 +3963,7 @@ ${text}`;
       const category = String(it.category || "").toLowerCase();
       return name.includes(kw) || originalName.includes(kw) || char1.includes(kw) || char2.includes(kw) || category.includes(kw);
     });
-  }, [selectedLiveProducts, liveSelectedProductSearch, liveItemDrafts]);
+  }, [selectedLiveProducts, liveSelectedProductSearch, liveSelectedChar1Filter, liveItemDrafts]);
 
   const liveFilteredProducts = useMemo(() => {
     const kw = liveProductSearch.trim().toLowerCase();
@@ -5483,7 +5497,7 @@ ${text}`;
               {liveFilteredProducts.length === 0 && <tr><td colSpan="7" className="empty">상품이 없어요.</td></tr>}
             </tbody></table></div>
             <h3>라방용 상품 목록</h3>
-            <div className="filterRow liveSelectedProductSearchRow"><label>등록상품 검색</label><input value={liveSelectedProductSearch} onChange={(e) => setLiveSelectedProductSearch(e.target.value)} placeholder="라방용 상품명/원본명/캐릭터" /><button type="button" onClick={() => setLiveSelectedProductSearch("")}>검색초기화</button><span className="statusLine">표시 {filteredSelectedLiveProducts.length.toLocaleString()} / 전체 {selectedLiveProducts.length.toLocaleString()}개</span></div>
+            <div className="filterRow liveSelectedProductSearchRow"><label>등록상품 검색</label><input value={liveSelectedProductSearch} onChange={(e) => setLiveSelectedProductSearch(e.target.value)} placeholder="라방용 상품명/원본명/캐릭터" /><label>캐릭터1</label><select value={liveSelectedChar1Filter} onChange={(e) => setLiveSelectedChar1Filter(e.target.value)}>{liveSelectedChar1Options.map((v) => <option key={v} value={v}>{v}</option>)}</select><button type="button" onClick={() => { setLiveSelectedProductSearch(""); setLiveSelectedChar1Filter("전체"); }}>검색초기화</button><span className="statusLine">표시 {filteredSelectedLiveProducts.length.toLocaleString()} / 전체 {selectedLiveProducts.length.toLocaleString()}개</span></div>
             <div className="liveBulkPriceTools">
               <span className="statusLine">체크 {selectedLiveProductIdsForBulk.length.toLocaleString()}개</span>
               <button type="button" onClick={selectAllLiveProductsForBulk}>전체선택</button>
@@ -5512,7 +5526,7 @@ ${text}`;
                   {liveFilteredProducts.length === 0 && <tr><td colSpan="10" className="empty">상품이 없어요.</td></tr>}
                 </tbody></table></div>
                 <h3>현재 라방용 상품</h3>
-                <div className="filterRow liveSelectedProductSearchRow"><label>등록상품 검색</label><input value={liveSelectedProductSearch} onChange={(e) => setLiveSelectedProductSearch(e.target.value)} placeholder="라방용 상품명/원본명/캐릭터" /><button type="button" onClick={() => setLiveSelectedProductSearch("")}>검색초기화</button><span className="statusLine">표시 {filteredSelectedLiveProducts.length.toLocaleString()} / 전체 {selectedLiveProducts.length.toLocaleString()}개</span></div>
+                <div className="filterRow liveSelectedProductSearchRow"><label>등록상품 검색</label><input value={liveSelectedProductSearch} onChange={(e) => setLiveSelectedProductSearch(e.target.value)} placeholder="라방용 상품명/원본명/캐릭터" /><label>캐릭터1</label><select value={liveSelectedChar1Filter} onChange={(e) => setLiveSelectedChar1Filter(e.target.value)}>{liveSelectedChar1Options.map((v) => <option key={v} value={v}>{v}</option>)}</select><button type="button" onClick={() => { setLiveSelectedProductSearch(""); setLiveSelectedChar1Filter("전체"); }}>검색초기화</button><span className="statusLine">표시 {filteredSelectedLiveProducts.length.toLocaleString()} / 전체 {selectedLiveProducts.length.toLocaleString()}개</span></div>
                 <div className="liveBulkPriceTools">
                   <span className="statusLine">체크 {selectedLiveProductIdsForBulk.length.toLocaleString()}개</span>
                   <button type="button" onClick={selectAllLiveProductsForBulk}>전체선택</button>
