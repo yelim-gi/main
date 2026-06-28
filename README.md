@@ -12,3 +12,10 @@ npm run dev
 
 ## Supabase
 supabase_setup.sql을 한 번 실행해주세요.
+
+
+## v163 중요
+이벤트경품/킵 자동발송 기능을 쓰려면 배포 전에 `SUPABASE_먼저실행.sql`을 Supabase SQL Editor에서 한 번 실행하세요.
+- event_prizes 테이블 생성
+- live_orders 킵 관련 컬럼 추가
+- schema cache reload 포함

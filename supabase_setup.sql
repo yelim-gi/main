@@ -267,3 +267,6 @@ create policy "authenticated event_prizes" on event_prizes for all to authentica
 -- v162 keep auto ship date support
 alter table live_orders add column if not exists keep_started_at text;
 alter table live_orders add column if not exists keep_days text;
+
+-- v163 schema cache reload
+notify pgrst, 'reload schema';
