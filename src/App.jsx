@@ -552,6 +552,7 @@ export default function App() {
   const [copyLiveSourceId, setCopyLiveSourceId] = useState("");
   const [eventPrizeForm, setEventPrizeForm] = useState({ productId: "", name: "", qty: "1", eventName: "", memo: "" });
   const [eventPrizeSearch, setEventPrizeSearch] = useState("");
+  const [eventPrizeProductSearch, setEventPrizeProductSearch] = useState("");
   const [editingLiveOrderId, setEditingLiveOrderId] = useState("");
   const [liveOrderDrafts, setLiveOrderDrafts] = useState({});
   const [selectedLiveInvoiceIds, setSelectedLiveInvoiceIds] = useState([]);
@@ -3613,6 +3614,8 @@ ${text}`;
       bundleId: r.bundle_id || r.bundleId || "",
       deducted: !!r.deducted,
       paidAt: r.paid_at || r.paidAt || "",
+      keepStartedAt: r.keep_started_at || r.keepStartedAt || "",
+      keepDays: String(r.keep_days ?? r.keepDays ?? ""),
       usedPoints: toInt(r.used_points ?? r.usedPoints),
       earnedPoints: toInt(r.earned_points ?? r.earnedPoints),
       memberPointsBefore: toInt(r.member_points_before ?? r.memberPointsBefore),
@@ -3660,6 +3663,8 @@ ${text}`;
       bundle_id: row.bundleId || "",
       deducted: !!row.deducted,
       paid_at: row.paidAt || "",
+      keep_started_at: row.keepStartedAt || "",
+      keep_days: row.keepDays ? String(row.keepDays) : "",
       used_points: toInt(row.usedPoints),
       earned_points: toInt(row.earnedPoints),
       member_points_before: toInt(row.memberPointsBefore),
@@ -4105,19 +4110,57 @@ ${text}`;
     return row.address || [row.baseAddress || "", row.detailAddress || ""].filter(Boolean).join(" ");
   }
 
-  function liveOrderKeepDday(order) {
-    if (!["정산후킵", "입금후킵", "입금후합배송"].includes(String(order?.status || ""))) return "-";
+  const KEEP_STATUSES = ["정산후킵", "입금후킵", "입금후합배송"];
+
+  function parseDateOnlyKst(value) {
+    const raw = String(value || "").trim();
+    const m = raw.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  function formatKoreanMonthDay(date) {
+    if (!date || Number.isNaN(date.getTime())) return "";
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+
+  function keepStartValueOf(order, session) {
+    return order?.keepStartedAt || order?.paidAt || order?.updatedAt || order?.createdAt || session?.date || order?.liveDate;
+  }
+
+  function keepDaysOf(order, session) {
+    return Math.max(1, toInt(order?.keepDays || session?.keepDays || 14));
+  }
+
+  function liveOrderKeepAutoShipDate(order) {
+    if (!KEEP_STATUSES.includes(String(order?.status || ""))) return null;
     const session = liveSessions.find((s) => String(s.id) === String(order.sessionId)) || selectedLiveSession;
-    const startValue = order.liveDate || session?.date || order.createdAt?.slice(0, 10);
-    if (!startValue) return "-";
-    const start = new Date(startValue);
-    if (Number.isNaN(start.getTime())) return "-";
+    const start = parseDateOnlyKst(keepStartValueOf(order, session));
+    if (!start) return null;
+    const days = keepDaysOf(order, session);
     const end = new Date(start);
-    end.setDate(end.getDate() + toInt(session?.keepDays || 0));
-    const diff = Math.ceil((end.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-    if (diff > 0) return `D-${diff}`;
-    if (diff === 0) return "D-DAY";
-    return `출고필요 D+${Math.abs(diff)}`;
+    end.setDate(end.getDate() + days - 1); // 당일 포함: 6/28 + 13 = 7/11
+    return end;
+  }
+
+  function liveOrderKeepShipText(order) {
+    const end = liveOrderKeepAutoShipDate(order);
+    return end ? `${formatKoreanMonthDay(end)} 이후 자동 발송` : "";
+  }
+
+  function liveOrderKeepDday(order) {
+    if (!KEEP_STATUSES.includes(String(order?.status || ""))) return "-";
+    const end = liveOrderKeepAutoShipDate(order);
+    if (!end) return "-";
+    const today = new Date();
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const diff = Math.ceil((end.getTime() - todayOnly.getTime()) / (24 * 60 * 60 * 1000));
+    const text = liveOrderKeepShipText(order);
+    if (diff > 0) return `D-${diff} (${text})`;
+    if (diff === 0) return `D-DAY (${text})`;
+    return `출고필요 D+${Math.abs(diff)} (${text})`;
   }
 
   function isLiveKeepDueSoon(order) {
@@ -4159,6 +4202,14 @@ ${text}`;
     try {
       await saveLiveSessionDb(next);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? next : s));
+      if (Object.prototype.hasOwnProperty.call(patch, "keepDays")) {
+        const keepOrders = liveOrders.filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && KEEP_STATUSES.includes(String(o.status || "")) && !o.canceledAt);
+        const changedOrders = keepOrders.map((o) => ({ ...o, keepDays: String(next.keepDays || "14"), updatedAt: nowString() }));
+        for (const order of changedOrders) await saveLiveOrderDb(order);
+        if (changedOrders.length) {
+          setLiveOrders((prev) => prev.map((o) => changedOrders.find((x) => String(x.id) === String(o.id)) || o));
+        }
+      }
     } catch (error) {
       alert("라방 설정 저장 실패: " + error.message);
     }
@@ -4933,8 +4984,16 @@ ${text}`;
     if (hasStatusPatch && !nextIsPaid) {
       next = { ...next, deducted: false, paidAt: "" };
     }
-    if (hasStatusPatch && ["정산후킵", "입금후킵", "입금후합배송"].includes(patch.status)) {
-      next = { ...next, trackingNo: "" };
+    if (hasStatusPatch && KEEP_STATUSES.includes(patch.status)) {
+      next = {
+        ...next,
+        trackingNo: "",
+        keepStartedAt: nowString(),
+        keepDays: String((liveSessions.find((s) => String(s.id) === String(current.sessionId)) || selectedLiveSession || {}).keepDays || "14"),
+      };
+    }
+    if (hasStatusPatch && !KEEP_STATUSES.includes(patch.status)) {
+      next = { ...next, keepStartedAt: "", keepDays: "" };
     }
     try {
       await saveLiveOrderDb(next);
@@ -5241,10 +5300,12 @@ ${text}`;
     const rows = (order.items || []).map((it, idx) => `
       <tr><td>${idx + 1}</td><td>${htmlSafe(it.name || "")}</td><td>${toInt(it.qty)}</td><td>${money(toInt(it.price) * toInt(it.qty))}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "Y" : "N"}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "0원" : money(toInt(it.price) * toInt(it.qty))}</td></tr>
     `).join("");
+    const keepShipText = liveOrderKeepShipText(order);
+    const keepNotice = keepShipText ? `<div class="keepNotice"><b>킵 자동 발송 날짜</b> : ${htmlSafe(keepShipText)}</div>` : "";
     // v160: 정산서에는 카드수수료/포인트 정보를 표시하지 않습니다.
     return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlSafe(liveInvoiceFileBase(order))}</title><style>
-      @page{size:A4 portrait;margin:0} html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00} .page{width:210mm;min-height:297mm;margin:10mm auto;background:white;padding:10mm;box-sizing:border-box;position:relative;page-break-after:always}.wm{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);font-size:54px;font-weight:900;color:#4a3b00;opacity:.035;pointer-events:none;z-index:0;white-space:nowrap}.content{position:relative;z-index:1}h1{text-align:center;font-size:24px;margin:4px 0 12px}.info{width:100%;border-collapse:collapse;margin-bottom:10px}.info th{background:#fff2b3;width:18%}.info th,.info td{border:1px solid #d6c15c;padding:7px;text-align:left;font-size:12px}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th{background:#ffd84d}.items th,.items td{border:1px solid #d6c15c;padding:6px;text-align:center;font-size:12px}.items td:nth-child(2){text-align:left;white-space:normal;word-break:keep-all}.sum{margin:14px auto 10px;width:360px;border:2px solid #d0aa00;background:#fff9e6}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:7px 12px}.sum div:last-child{border-bottom:none}.sum .total{background:#ffd84d;font-weight:900;font-size:17px}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:10px;margin-top:10px;font-size:12px}.no-print{position:fixed;right:12px;top:12px;z-index:99}@media print{html,body{background:white}.no-print{display:none}.page{margin:0;box-shadow:none}}
-    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(order.paySubtotal)}</b></div><div><span>배송비</span><b>${money(order.shipping)}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div><div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
+      @page{size:A4 portrait;margin:0} html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00} .page{width:210mm;min-height:297mm;margin:10mm auto;background:white;padding:10mm;box-sizing:border-box;position:relative;page-break-after:always}.wm{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);font-size:54px;font-weight:900;color:#4a3b00;opacity:.035;pointer-events:none;z-index:0;white-space:nowrap}.content{position:relative;z-index:1}h1{text-align:center;font-size:24px;margin:4px 0 12px}.info{width:100%;border-collapse:collapse;margin-bottom:10px}.info th{background:#fff2b3;width:18%}.info th,.info td{border:1px solid #d6c15c;padding:7px;text-align:left;font-size:12px}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th{background:#ffd84d}.items th,.items td{border:1px solid #d6c15c;padding:6px;text-align:center;font-size:12px}.items td:nth-child(2){text-align:left;white-space:normal;word-break:keep-all}.sum{margin:14px auto 10px;width:360px;border:2px solid #d0aa00;background:#fff9e6}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:7px 12px}.sum div:last-child{border-bottom:none}.sum .total{background:#ffd84d;font-weight:900;font-size:17px}.keepNotice{border:2px solid #d0aa00;background:#fff2b3;padding:9px 12px;margin:10px 0;font-size:13px;font-weight:800;text-align:center}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:10px;margin-top:10px;font-size:12px}.no-print{position:fixed;right:12px;top:12px;z-index:99}@media print{html,body{background:white}.no-print{display:none}.page{margin:0;box-shadow:none}}
+    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(order.paySubtotal)}</b></div><div><span>배송비</span><b>${money(order.shipping)}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
   }
 
   function openLiveInvoicesPrint(ordersToPrint) {
@@ -5628,6 +5689,10 @@ ${text}`;
 
   function EventPrizePage() {
     const kw = eventPrizeSearch.trim().toLowerCase();
+    const productKw = eventPrizeProductSearch.trim().toLowerCase();
+    const eventPrizeProductResults = products
+      .filter((p) => !productKw || `${p.name || ""} ${p.char1 || ""} ${p.char2 || ""} ${p.category || ""}`.toLowerCase().includes(productKw))
+      .slice(0, 20);
     const rows = eventPrizes.filter((p) => !kw || `${p.name} ${p.eventName} ${p.memo} ${p.status}`.toLowerCase().includes(kw));
     return (
       <section className="eventPrizePage">
@@ -5635,13 +5700,19 @@ ${text}`;
           <h2>이벤트 경품목록</h2>
           <p className="statusLine">경품 등록만으로는 재고가 차감되지 않고, 지급완료를 눌렀을 때만 재고가 차감돼요.</p>
           <div className="filterRow">
-            <label>재고상품</label>
-            <select value={eventPrizeForm.productId} onChange={(e) => onEventPrizeProductSelect(e.target.value)}>
-              <option value="">수기입력/재고연동 없음</option>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.name} / 재고 {p.stock} / {p.char1 || "-"}</option>)}
-            </select>
+            <label>재고상품 검색</label>
+            <input className="wideInput" value={eventPrizeProductSearch} onChange={(e) => setEventPrizeProductSearch(e.target.value)} placeholder="상품명/캐릭터 검색" />
+            <button type="button" onClick={() => { setEventPrizeProductSearch(""); onEventPrizeProductSelect(""); }}>재고연동 없음</button>
             <label>경품명</label><input className="wideInput" value={eventPrizeForm.name} onChange={(e) => setEventPrizeForm({ ...eventPrizeForm, name: e.target.value })} />
             <label>수량</label><input className="tinyInput" value={eventPrizeForm.qty} onChange={(e) => setEventPrizeForm({ ...eventPrizeForm, qty: e.target.value })} />
+          </div>
+          <div className="eventPrizeProductResults">
+            {eventPrizeProductResults.map((p) => (
+              <button key={p.id} type="button" className={String(eventPrizeForm.productId) === String(p.id) ? "activeMiniBtn" : "miniProductPickBtn"} onClick={() => { onEventPrizeProductSelect(p.id); setEventPrizeProductSearch(p.name || ""); }}>
+                {p.name} / 재고 {toInt(p.stock)} / {p.char1 || "-"}{p.char2 ? ` / ${p.char2}` : ""}
+              </button>
+            ))}
+            {productKw && eventPrizeProductResults.length === 0 && <span className="emptySmall">검색 결과 없음</span>}
           </div>
           <div className="filterRow">
             <label>이벤트명</label><input value={eventPrizeForm.eventName} onChange={(e) => setEventPrizeForm({ ...eventPrizeForm, eventName: e.target.value })} placeholder="예: 7월 라방 추첨" />

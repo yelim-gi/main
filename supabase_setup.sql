@@ -263,3 +263,7 @@ create table if not exists event_prizes (
 alter table event_prizes enable row level security;
 drop policy if exists "authenticated event_prizes" on event_prizes;
 create policy "authenticated event_prizes" on event_prizes for all to authenticated using (true) with check (true);
+
+-- v162 keep auto ship date support
+alter table live_orders add column if not exists keep_started_at text;
+alter table live_orders add column if not exists keep_days text;

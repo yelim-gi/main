@@ -4910,3 +4910,30 @@ input.liveNameInput {
   font-size: 10px;
   flex: 0 0 auto;
 }
+
+/* v162: 이벤트 경품 상품 검색 결과 */
+.eventPrizeProductResults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 8px;
+  max-height: 110px;
+  overflow-y: auto;
+  border: 1px solid #eadb91;
+  background: #fffdf3;
+  padding: 5px;
+}
+.miniProductPickBtn,
+.activeMiniBtn {
+  height: 23px;
+  padding: 2px 7px;
+  font-size: 10px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activeMiniBtn {
+  background: #ffca28 !important;
+  border-color: #a67c00 !important;
+}
