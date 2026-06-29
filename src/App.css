@@ -4937,3 +4937,26 @@ input.liveNameInput {
   background: #ffca28 !important;
   border-color: #a67c00 !important;
 }
+
+/* v164: 라방 주문관리 상품 검색/수정버튼 위치 보정 */
+.liveOrdersTable .liveOrderItemsCell {
+  white-space: normal !important;
+  line-height: 1.25;
+  word-break: keep-all;
+  text-align: left;
+  min-width: 180px;
+}
+.liveOrdersTable .tinyEditBtn {
+  margin-top: 3px;
+  height: 19px;
+  padding: 1px 7px;
+  font-size: 10px;
+}
+.liveOrdersTable th:nth-child(2),
+.liveOrdersTable td:nth-child(2) {
+  width: 9%;
+}
+.liveOrdersTable th:nth-child(3),
+.liveOrdersTable td:nth-child(3) {
+  width: 18%;
+}
