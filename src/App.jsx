@@ -3516,6 +3516,8 @@ ${text}`;
       accountHolder: r.account_holder ?? r.accountHolder ?? "여깁니다유",
       notice: r.notice || "",
       products: parseJsonMaybe(r.products, []),
+      status: r.status || r.statusText || "진행중",
+      closedAt: r.closed_at || r.closedAt || "",
     };
   }
 
@@ -3537,6 +3539,8 @@ ${text}`;
       account_holder: row.accountHolder || "여깁니다유",
       notice: row.notice || "",
       products: row.products || [],
+      status: row.status || "진행중",
+      closed_at: row.closedAt || row.closed_at || "",
     };
   }
 
@@ -4172,6 +4176,21 @@ ${text}`;
     return `출고필요 D+${Math.abs(diff)} (${text})`;
   }
 
+  function liveOrderKeepRangeText(order) {
+    if (!KEEP_STATUSES.includes(String(order?.status || ""))) return "";
+    const session = liveSessions.find((s) => String(s.id) === String(order.sessionId)) || selectedLiveSession;
+    const start = parseDateOnlyKst(keepStartValueOf(order, session));
+    const end = liveOrderKeepAutoShipDate(order);
+    if (!start || !end) return "";
+    return `킵중 : ${formatKoreanMonthDay(start)}~${formatKoreanMonthDay(end)}`;
+  }
+
+  function liveOrderKeepMiniText(order) {
+    const range = liveOrderKeepRangeText(order);
+    const ship = liveOrderKeepShipText(order);
+    return [range, ship].filter(Boolean).join(" / ");
+  }
+
   function isLiveKeepDueSoon(order) {
     const text = liveOrderKeepDday(order);
     if (text.includes("출고필요") || text === "D-DAY") return true;
@@ -4187,44 +4206,63 @@ ${text}`;
     setOrderItemsPreview(order || null);
   }
 
-  function buildShippingRowFromLiveOrder(order) {
-    const key = `live-${order.id}`;
-    const itemsText = liveOrderItemsText(order);
+  function buildShippingRowFromLiveOrders(ordersForShipping = []) {
+    const clean = (ordersForShipping || []).filter((o) => o && !o.canceledAt);
+    if (!clean.length) return null;
+    const first = clean[0];
+    const key = `live-${clean.map((o) => o.id).join("-")}`;
+    const itemsText = clean.map((o) => `[${o.liveDate || "라방"}] ${liveOrderItemsText(o)}`).filter(Boolean).join(" / ");
     return {
       id: key,
       selected: false,
       sourceType: "live_order",
-      sourceOrderId: String(order.id),
-      receiverName: order.buyer || "",
-      zipcode: normalizeZip(order.postalCode || ""),
-      baseAddress: order.baseAddress || "",
-      detailAddress: order.detailAddress || "",
-      receiverPhone: normalizePhone(order.phone || ""),
-      boxWeight: String(order.boxWeight || "2"),
-      boxVolume: String(order.boxVolume || "60"),
+      sourceOrderId: String(first.id),
+      sourceOrderIds: clean.map((o) => String(o.id)),
+      bundleId: first.bundleId || "",
+      receiverName: first.buyer || "",
+      zipcode: normalizeZip(first.postalCode || ""),
+      baseAddress: first.baseAddress || "",
+      detailAddress: first.detailAddress || "",
+      receiverPhone: normalizePhone(first.phone || ""),
+      boxWeight: String(first.boxWeight || "2"),
+      boxVolume: String(first.boxVolume || "60"),
       boxCount: "1",
-      content: order.household || "생활용품",
-      deliveryMessage: [order.deliveryMessage || "", itemsText ? `주문상품: ${itemsText}` : ""].filter(Boolean).join("\n"),
-      orderStatus: order.status || "",
+      content: first.household || "생활용품",
+      deliveryMessage: [first.deliveryMessage || "", itemsText ? `합배송 주문상품: ${itemsText}` : ""].filter(Boolean).join("\n"),
+      orderStatus: clean.map((o) => o.status || "").join(", "),
     };
   }
 
-  function addLiveOrderToShippingQueue(order) {
-    if (!order || order.canceledAt) return;
-    const row = buildShippingRowFromLiveOrder(order);
+  function buildShippingRowFromLiveOrder(order) {
+    return buildShippingRowFromLiveOrders([order]);
+  }
+
+  function addLiveOrdersToShippingQueue(ordersForShipping = []) {
+    const row = buildShippingRowFromLiveOrders(ordersForShipping);
+    if (!row) return;
     setShippingRows((prev) => {
-      const exists = prev.some((x) => String(x.sourceOrderId || "") === String(order.id));
-      if (exists) return prev.map((x) => String(x.sourceOrderId || "") === String(order.id) ? { ...x, ...row, selected: x.selected } : x);
+      const ids = new Set(row.sourceOrderIds || [row.sourceOrderId]);
+      const exists = prev.some((x) => (x.sourceOrderIds || [x.sourceOrderId]).some((id) => ids.has(String(id))));
+      if (exists) return prev.map((x) => {
+        const xIds = x.sourceOrderIds || [x.sourceOrderId];
+        return xIds.some((id) => ids.has(String(id))) ? { ...x, ...row, selected: x.selected } : x;
+      });
       return [row, ...prev];
     });
   }
 
+  function addLiveOrderToShippingQueue(order) {
+    if (!order || order.canceledAt) return;
+    addLiveOrdersToShippingQueue([order]);
+  }
+
   async function confirmLiveShippingRow(row) {
-    if (!row?.sourceOrderId) return alert("라방 주문과 연결된 택배건이 아니에요.");
-    const order = liveOrders.find((o) => String(o.id) === String(row.sourceOrderId));
-    if (!order) return alert("연결된 라방 주문을 찾을 수 없어요.");
-    if (!window.confirm(`${order.buyer} 주문을 출고완료로 바꿀까요?`)) return;
-    await updateLiveOrder(order.id, { status: "출고완료" });
+    const ids = (row?.sourceOrderIds || (row?.sourceOrderId ? [row.sourceOrderId] : [])).map(String);
+    if (!ids.length) return alert("라방 주문과 연결된 택배건이 아니에요.");
+    const targets = liveOrders.filter((o) => ids.includes(String(o.id)) && !o.canceledAt);
+    if (!targets.length) return alert("연결된 라방 주문을 찾을 수 없어요.");
+    if (!window.confirm(`${row.receiverName || targets[0].buyer} 합배송 ${targets.length}건을 출고완료로 바꿀까요?`)) return;
+    for (const order of targets) await updateLiveOrder(order.id, { status: "출고완료" });
     setShippingRows((prev) => prev.filter((x) => String(x.id) !== String(row.id)));
   }
 
@@ -4232,6 +4270,29 @@ ${text}`;
     const key = makeMemberKey(form.buyer, form.phone);
     if (!key) return [];
     return liveOrders.filter((o) => !o.canceledAt && String(o.status || "") !== "출고완료" && makeMemberKey(o.buyer, o.phone) === key);
+  }
+
+  function sameLiveKeepOrders(form, includeCurrentId = "") {
+    return sameLiveMemberOrders(form).filter((o) => String(o.id) !== String(includeCurrentId || "") && KEEP_STATUSES.includes(String(o.status || "")));
+  }
+
+  async function processLiveCombinedShipping(anchorOrder) {
+    if (!anchorOrder) return;
+    const keepOrders = sameLiveKeepOrders(anchorOrder, anchorOrder.id);
+    const targets = [anchorOrder, ...keepOrders].filter((o, idx, arr) => arr.findIndex((x) => String(x.id) === String(o.id)) === idx);
+    if (targets.length < 2) return alert("합배송할 킵 주문이 없어요.");
+    const bundleId = anchorOrder.bundleId || makeLiveId("bundle");
+    if (!window.confirm(`${anchorOrder.buyer}님 주문 ${targets.length}건을 합배송 처리하고 택배접수에 올릴까요?`)) return;
+    const updated = [];
+    for (const o of targets) {
+      const next = { ...o, bundleId, status: "입금후합배송", trackingNo: "", updatedAt: nowString(), keepStartedAt: o.keepStartedAt || nowString(), keepDays: o.keepDays || String((liveSessions.find((s) => String(s.id) === String(o.sessionId)) || selectedLiveSession || {}).keepDays || "14") };
+      await saveLiveOrderDb(next);
+      updated.push(next);
+    }
+    setLiveOrders((prev) => prev.map((o) => updated.find((x) => String(x.id) === String(o.id)) || o));
+    addLiveOrdersToShippingQueue(updated);
+    setActiveTab("택배접수");
+    alert("합배송 처리 후 택배접수 목록에 추가했어요. 택배접수 탭에서 출고확정을 누르면 묶인 주문이 모두 출고완료로 바뀝니다.");
   }
 
   function getBundleOrders(order) {
@@ -5005,10 +5066,15 @@ ${text}`;
       const order = {
         id: oldOrder?.id || makeLiveId("liveorder"), sessionId: session.id, liveTitle: session.title, liveDate: session.date,
         createdAt: oldOrder?.createdAt || nowString(), updatedAt: nowString(), locked: oldOrder?.locked || false, canceledAt: "", cancelReason: "", deducted: oldOrder?.deducted || false, paidAt: oldOrder?.paidAt || "", memberKey,
-        ...liveOrderForm, status: oldOrder?.status || "미입금", address: orderAddressOf(liveOrderForm), items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary, earnedPoints: summary.earnedPoints, pointRate: summary.pointRate, memberPointsBefore: oldOrder?.memberPointsBefore ?? (toInt(summary.pointBalanceAfter) + toInt(summary.usedPoints) - toInt(summary.earnedPoints)), memberPointsAfter: summary.pointBalanceAfter, pointBalanceAfter: summary.pointBalanceAfter, pointNote: session.pointNote || liveNewSession.pointNote || "",
+        ...liveOrderForm, status: liveOrderForm.status || oldOrder?.status || "미입금", address: orderAddressOf(liveOrderForm), items: liveCart.map((it) => ({ ...it, qty: toInt(it.qty), price: toInt(it.price) })), ...summary, earnedPoints: summary.earnedPoints, pointRate: summary.pointRate, memberPointsBefore: oldOrder?.memberPointsBefore ?? (toInt(summary.pointBalanceAfter) + toInt(summary.usedPoints) - toInt(summary.earnedPoints)), memberPointsAfter: summary.pointBalanceAfter, pointBalanceAfter: summary.pointBalanceAfter, pointNote: session.pointNote || liveNewSession.pointNote || "",
       };
       // 라방 상품 등록 시 본재고를 이미 예약 차감하므로 주문 수정/저장 때 본재고는 건드리지 않는다.
       order.deducted = false;
+      if (KEEP_STATUSES.includes(String(order.status || ""))) {
+        order.trackingNo = "";
+        order.keepStartedAt = order.keepStartedAt || nowString();
+        order.keepDays = order.keepDays || String(session.keepDays || "14");
+      }
       await saveLiveOrderDb(order);
 
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
@@ -5561,30 +5627,59 @@ ${text}`;
   async function closeLiveSessionRestoreUnsold() {
     if (!selectedLiveSession) return alert("종료할 라방을 선택해줘.");
     const liveProducts = selectedLiveSession.products || [];
-    const restoreItems = liveProducts.filter((li) => toInt(li.remainingQty) > 0);
-    if (restoreItems.length === 0) return alert("정리할 미판매 라방수량이 없어요.");
-    const totalQty = restoreItems.reduce((sum, li) => sum + toInt(li.remainingQty), 0);
-    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료하고 미판매 라방수량 ${totalQty}개를 본재고로 원복할까요?
 
-라방 등록 시 본재고에서 빠져있던 미판매 수량만 다시 재고관리로 돌아갑니다. 이미 주문에 잡힌 수량은 유지됩니다.`);
+    // 미입금 주문도 이미 고객이 선점한 수량으로 본다.
+    // 라방 종료 시 주문건에 담긴 수량은 본재고로 원복하지 않고,
+    // 어떤 주문에도 담기지 않은 라방 미판매 수량만 재고관리로 돌린다.
+    const orderedQtyByLiveItem = {};
+    liveOrders
+      .filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt)
+      .forEach((o) => {
+        (o.items || []).forEach((it) => {
+          const key = String(it.liveItemId || "");
+          if (!key) return;
+          orderedQtyByLiveItem[key] = (orderedQtyByLiveItem[key] || 0) + toInt(it.qty);
+        });
+      });
+
+    const restoreItems = liveProducts
+      .map((li) => {
+        const liveQty = toInt(li.liveQty || li.qty || li.quantity);
+        const orderedQty = toInt(orderedQtyByLiveItem[String(li.id)] || 0);
+        const alreadyRestoredQty = toInt(li.restoredQty);
+        const calculatedUnsoldQty = Math.max(0, liveQty - orderedQty - alreadyRestoredQty);
+        const remainingQty = toInt(li.remainingQty);
+        const restoreQty = Math.max(0, Math.min(remainingQty || calculatedUnsoldQty, calculatedUnsoldQty));
+        return { ...li, restoreQty, orderedQty };
+      })
+      .filter((li) => toInt(li.restoreQty) > 0);
+
+    const totalQty = restoreItems.reduce((sum, li) => sum + toInt(li.restoreQty), 0);
+    if (totalQty <= 0) return alert("정리할 미판매 라방수량이 없어요. 주문에 담긴 수량(미입금 포함)은 선점 수량으로 유지됩니다.");
+
+    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료하고 주문에 담기지 않은 미판매 라방수량 ${totalQty}개를 본재고로 원복할까요?\n\n미입금 주문도 선점된 주문으로 보고 재고 원복하지 않습니다. 주문건에 없는 라방상품 수량만 재고관리로 돌아갑니다.`);
     if (!ok) return;
 
     const restoreByProduct = {};
     restoreItems.forEach((li) => {
       if (String(li.stockMode || "reserved_deducted") === "no_deduct") return;
-      const remain = toInt(li.remainingQty);
-      if (remain > 0 && li.productId) restoreByProduct[String(li.productId)] = (restoreByProduct[String(li.productId)] || 0) + remain;
+      const restoreQty = toInt(li.restoreQty);
+      if (restoreQty > 0 && li.productId) restoreByProduct[String(li.productId)] = (restoreByProduct[String(li.productId)] || 0) + restoreQty;
     });
 
     try {
       await adjustProductStockMany(restoreByProduct);
+      const restoreQtyByLiveItem = {};
+      restoreItems.forEach((li) => { restoreQtyByLiveItem[String(li.id)] = toInt(li.restoreQty); });
+
       const nextProducts = liveProducts.map((li) => {
-        const remain = toInt(li.remainingQty);
-        if (remain <= 0) return li;
+        const restoreQty = toInt(restoreQtyByLiveItem[String(li.id)] || 0);
+        if (restoreQty <= 0) return li;
+        const nextRemaining = Math.max(0, toInt(li.remainingQty) - restoreQty);
         return {
           ...li,
-          remainingQty: "0",
-          restoredQty: toInt(li.restoredQty) + remain,
+          remainingQty: String(nextRemaining),
+          restoredQty: toInt(li.restoredQty) + restoreQty,
           restoredAt: nowString(),
         };
       });
@@ -5599,8 +5694,8 @@ ${text}`;
       await saveLiveSessionDb(nextSession);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
       await Promise.all([getProducts(), getLiveSessions()]);
-      await writeAudit("live_session_close_restore_unsold", `${selectedLiveSession.title || selectedLiveSession.id} / qty=${totalQty}`);
-      alert(`라방을 종료하고 미판매 수량 ${totalQty}개를 본재고로 원복했어요.`);
+      await writeAudit("live_session_close_restore_unsold", `${selectedLiveSession.title || selectedLiveSession.id} / qty=${totalQty} / unpaid_orders_reserved=true`);
+      alert(`라방을 종료하고 주문에 없는 미판매 수량 ${totalQty}개만 본재고로 원복했어요. 미입금 주문 수량은 선점 수량으로 유지돼요.`);
     } catch (error) {
       alert("미판매 재고 원복 실패: " + String(error?.message || error));
       await Promise.all([getProducts(), getLiveSessions()]);
@@ -5801,6 +5896,7 @@ ${text}`;
     const sales = liveSalesSummary();
     const statusOptions = ["미입금", "입금확인", "입금후킵", "입금후합배송", "출고준비", "송장입력", "출고완료"];
     const matchingOrders = sameLiveMemberOrders(liveOrderForm).filter((o) => String(o.sessionId) !== String(selectedLiveSession?.id) || ["정산후킵", "입금후킵", "입금후합배송"].includes(String(o.status)));
+    const keepOrdersForCurrentBuyer = sameLiveKeepOrders(liveOrderForm, editingLiveOrderId);
     return (
       <section className="livePage">
         <div className="panel liveTopPanel">
@@ -5924,10 +6020,12 @@ ${text}`;
               <label>전화번호</label><input value={liveOrderForm.phone} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, phone: e.target.value })} />
               <button type="button" onClick={() => saveMemberFromOrderForm(true)}>회원저장</button>
               <label>결제</label><select value={liveOrderForm.paymentMethod} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, paymentMethod: e.target.value })}><option>계좌이체</option><option>카드결제</option></select>
+              <label>주문상태</label><select value={liveOrderForm.status} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, status: e.target.value })}><option>미입금</option><option>입금확인</option><option>입금후킵</option><option>입금후합배송</option><option>송장입력</option><option>출고완료</option></select>
             </div>
             {matchingOrders.length > 0 && <div className="statusLine dangerText">⚠ 같은 회원의 미출고/킵 주문 {matchingOrders.length}건이 있어요.
-              <div className="keepOrderMiniList">{matchingOrders.map((o) => <span key={o.id} className="keepOrderChip">{o.liveDate} {o.status} {liveOrderKeepDday(o)}</span>)}</div>
+              <div className="keepOrderMiniList">{matchingOrders.map((o) => <span key={o.id} className="keepOrderChip">{o.liveDate} {o.status} {liveOrderKeepMiniText(o) || liveOrderKeepDday(o)}</span>)}</div>
             </div>}
+            {String(liveOrderForm.status || "") === "입금후합배송" && keepOrdersForCurrentBuyer.length > 0 && <div className="statusLine dangerText">합배송 가능한 킵 주문: {keepOrdersForCurrentBuyer.map((o) => <span key={o.id} className="keepOrderChip">{o.liveDate} {liveOrderKeepMiniText(o)}</span>)} {editingLiveOrderId && <button type="button" onClick={() => processLiveCombinedShipping(liveOrders.find((o) => String(o.id) === String(editingLiveOrderId)))}>합배송 진행</button>} {!editingLiveOrderId && <small>주문 저장 후 주문관리에서 합배송 진행 버튼을 눌러줘.</small>}</div>}
             <div className="filterRow"><label>우편번호</label><input value={liveOrderForm.postalCode} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, postalCode: e.target.value })} /><button type="button" onClick={() => openDaumPostcode("order")}>우편번호 검색</button><label>기본주소</label><input className="wideInput" value={liveOrderForm.baseAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, baseAddress: e.target.value, address: [e.target.value, liveOrderForm.detailAddress].filter(Boolean).join(" ") })} /></div>
             <div className="filterRow"><label>상세주소</label><input className="wideInput" value={liveOrderForm.detailAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, detailAddress: e.target.value, address: [liveOrderForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /><label className="checkLine"><input type="checkbox" checked={liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, shippingApply: e.target.checked })} />배송비 적용</label></div>
             <div className="filterRow"><label>박스무게</label><select value={liveOrderForm.boxWeight} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, boxWeight: e.target.value })}><option>2</option><option>5</option></select><label>박스부피</label><select value={liveOrderForm.boxVolume} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, boxVolume: e.target.value })}><option>60</option><option>80</option><option>100</option></select><label>내용품</label><input value={liveOrderForm.household} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, household: e.target.value })} /><label>배송메모</label><input className="wideInput" value={liveOrderForm.deliveryMessage} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, deliveryMessage: e.target.value })} /></div>
@@ -5948,7 +6046,7 @@ ${text}`;
               <button type="button" onClick={() => setSelectedLiveInvoiceIds(liveFilteredOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedLiveInvoiceIds([])}>선택해제</button><button type="button" onClick={() => printSelectedLiveInvoices("selected")}>선택 PDF</button><button type="button" onClick={() => printSelectedLiveInvoices("all")}>전체 PDF</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("selected")}>선택 엑셀 ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("all")}>전체 엑셀 ZIP</button>
             </div>
             <div className="tableWrap liveOrdersTable"><table><thead><tr><th>선택</th><th>구매자</th><th>상품</th><th>라방일</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th><th>삭제</th></tr></thead><tbody>
-              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td><input type="checkbox" checked={selectedLiveInvoiceIds.includes(String(o.id))} onChange={(e) => setSelectedLiveInvoiceIds((prev) => e.target.checked ? Array.from(new Set([...prev, String(o.id)])) : prev.filter((id) => id !== String(o.id)))} /></td><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small><br/><button type="button" disabled={!!o.canceledAt || o.locked} onClick={() => beginEditLiveOrder(o)}>수정</button></td><td><button type="button" onClick={() => openOrderItemsPreview(o)}>상품보기</button></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={(liveOrderDrafts[o.id]?.status ?? o.status)} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), status: e.target.value } }))}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" disabled={o.locked} onClick={() => { const d = liveOrderDrafts[o.id] || {}; updateLiveOrder(o.id, { status: d.status ?? o.status, trackingNo: d.trackingNo ?? o.trackingNo ?? "" }); }}>저장</button></td><td>{liveOrderKeepDday({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}</td><td><input disabled={o.locked || ["정산후킵", "입금후킵", "입금후합배송"].includes(liveOrderDrafts[o.id]?.status ?? o.status)} value={(liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "")} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), trackingNo: e.target.value, status: e.target.value ? "송장입력" : (prev[o.id]?.status ?? o.status) } }))} /></td><td><button onClick={() => bundleLiveOrdersFor(o)}>{o.bundleId ? "묶임" : "합치기"}</button></td><td><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
+              {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td><input type="checkbox" checked={selectedLiveInvoiceIds.includes(String(o.id))} onChange={(e) => setSelectedLiveInvoiceIds((prev) => e.target.checked ? Array.from(new Set([...prev, String(o.id)])) : prev.filter((id) => id !== String(o.id)))} /></td><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small><br/><button type="button" disabled={!!o.canceledAt || o.locked} onClick={() => beginEditLiveOrder(o)}>수정</button></td><td><button type="button" onClick={() => openOrderItemsPreview(o)}>상품보기</button></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={(liveOrderDrafts[o.id]?.status ?? o.status)} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), status: e.target.value } }))}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" disabled={o.locked} onClick={() => { const d = liveOrderDrafts[o.id] || {}; updateLiveOrder(o.id, { status: d.status ?? o.status, trackingNo: d.trackingNo ?? o.trackingNo ?? "" }); }}>저장</button></td><td>{liveOrderKeepDday({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}</td><td><input disabled={o.locked || ["정산후킵", "입금후킵", "입금후합배송"].includes(liveOrderDrafts[o.id]?.status ?? o.status)} value={(liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "")} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), trackingNo: e.target.value, status: e.target.value ? "송장입력" : (prev[o.id]?.status ?? o.status) } }))} /></td><td>{o.bundleId ? <span className="bundleBadge">묶임</span> : <button onClick={() => bundleLiveOrdersFor(o)}>합치기</button>}{String(liveOrderDrafts[o.id]?.status ?? o.status) === "입금후합배송" && <button type="button" onClick={() => processLiveCombinedShipping({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}>합배송 진행</button>}</td><td><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
               {liveFilteredOrders.length === 0 && <tr><td colSpan="12" className="empty">주문 기록이 없어요.</td></tr>}
             </tbody></table></div>
             <p className="statusLine">회원 전체 수정/삭제와 모든 라방 주문 모아보기는 상단 [회원정보] 탭에서 관리해줘.</p>
@@ -5966,9 +6064,9 @@ ${text}`;
           <h2>회원정보</h2>
           <p className="statusLine">회원 수정/삭제, 라방 전체 주문내역, 합배송/킵 상태 변경, 선택 정산서 출력을 관리하는 탭이에요.</p>
           <div className="filterRow"><label>회원검색</label><input value={memberInfoSearch} onChange={(e) => setMemberInfoSearch(e.target.value)} placeholder="이름/전화번호/뒷4자리" />{memberInfoFilteredMembers.length > 0 && <select value={selectedMemberInfo?.id || ""} onChange={(e) => { const m = liveMembers.find((x) => String(x.id) === e.target.value); if (m) loadMemberInfoToForm(m); }}><option value="">회원 선택</option>{memberInfoFilteredMembers.map((m) => <option key={m.id} value={m.id}>{m.name} / {phoneLast4(m.phone)} / {toInt(m.points).toLocaleString()}P</option>)}</select>}</div>
-          <div className="tableWrap memberListTable"><table><thead><tr><th>고객명</th><th>전화번호</th><th>보유P</th><th>적립%</th><th>주소</th><th>메모</th><th>관리</th></tr></thead><tbody>
-            {memberInfoFilteredMembers.map((m) => <tr key={m.id} className={selectedMemberInfo?.id === m.id ? "selectedRow" : ""} onClick={() => loadMemberInfoToForm(m)}><td>{m.name}</td><td>{m.phone}</td><td>{toInt(m.points).toLocaleString()}P</td><td>{m.pointRate || 0}%</td><td title={m.address}>{m.address || "-"}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={(e) => { e.stopPropagation(); loadMemberInfoToForm(m); }}>선택</button><button className="deleteBtn" type="button" onClick={(e) => { e.stopPropagation(); deleteLiveMember(m); }}>삭제</button></td></tr>)}
-            {memberInfoFilteredMembers.length === 0 && <tr><td colSpan="7" className="empty">저장된 회원이 없어요.</td></tr>}
+          <div className="tableWrap memberListTable"><table><thead><tr><th>고객명</th><th>전화번호</th><th>주소</th><th>킵상태</th><th>메모</th><th>관리</th></tr></thead><tbody>
+            {memberInfoFilteredMembers.map((m) => { const keepRows = sameLiveKeepOrders({ buyer: m.name, phone: m.phone }); return <tr key={m.id} className={selectedMemberInfo?.id === m.id ? "selectedRow" : ""} onClick={() => loadMemberInfoToForm(m)}><td>{m.name}</td><td>{m.phone}</td><td title={m.address}>{m.address || "-"}</td><td>{keepRows.length ? keepRows.map((o) => <div key={o.id} className="keepMiniText">{liveOrderKeepRangeText(o) || liveOrderKeepDday(o)}</div>) : "-"}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={(e) => { e.stopPropagation(); loadMemberInfoToForm(m); }}>선택</button><button className="deleteBtn" type="button" onClick={(e) => { e.stopPropagation(); deleteLiveMember(m); }}>삭제</button></td></tr>; })}
+            {memberInfoFilteredMembers.length === 0 && <tr><td colSpan="6" className="empty">저장된 회원이 없어요.</td></tr>}
           </tbody></table></div>
           <div className="filterRow"><label>고객명</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>전화번호</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>보유P</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><label>기본적립%</label><input className="tinyInput" value={liveMemberForm.pointRate} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, pointRate: e.target.value })} /></div>
           <div className="filterRow"><label>우편번호</label><input value={liveMemberForm.postalCode} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, postalCode: e.target.value })} /><button type="button" onClick={() => openDaumPostcode("member")}>우편번호 검색</button><label>기본주소</label><input className="wideInput" value={liveMemberForm.baseAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, baseAddress: e.target.value, address: [e.target.value, liveMemberForm.detailAddress].filter(Boolean).join(" ") })} /><label>상세주소</label><input className="wideInput" value={liveMemberForm.detailAddress} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, detailAddress: e.target.value, address: [liveMemberForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /></div>
@@ -5979,8 +6077,8 @@ ${text}`;
           <h2>회원 주문 모아보기</h2>
           {selectedMemberInfo ? <p className="statusLine">{selectedMemberInfo.name} / {selectedMemberInfo.phone} / 보유 {toInt(selectedMemberInfo.points).toLocaleString()}P / 기본적립 {selectedMemberInfo.pointRate || 0}%</p> : <p className="statusLine">회원을 선택해줘.</p>}
           <div className="buttonRow"><button type="button" onClick={() => setSelectedMemberOrderIds(selectedMemberOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedMemberOrderIds([])}>선택해제</button><button type="button" onClick={printMemberSelectedInvoices}>선택 정산서 PDF</button><button type="button" onClick={downloadMemberSelectedExcelZip}>선택 정산서 엑셀 ZIP</button><label>선택 상태변경</label><select onChange={(e) => { if (e.target.value) { changeSelectedMemberOrderStatus(e.target.value); e.target.value = ""; } }}><option value="">상태 선택</option>{statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
-          <div className="tableWrap memberOrdersTable"><table><thead><tr><th>선택</th><th>라방일</th><th>라방명</th><th>상품</th><th>금액</th><th>상태</th><th>송장</th><th>정산서</th><th>관리</th></tr></thead><tbody>
-            {selectedMemberOrders.map((o) => <tr key={o.id} className={["입금후킵", "입금후합배송", "정산후킵"].includes(String(o.status)) ? "dangerRow" : ""}><td><input type="checkbox" checked={selectedMemberOrderIds.includes(String(o.id))} onChange={(e) => setSelectedMemberOrderIds((prev) => e.target.checked ? Array.from(new Set([...prev, String(o.id)])) : prev.filter((id) => id !== String(o.id)))} /></td><td>{o.liveDate}</td><td>{o.liveTitle}</td><td><button type="button" onClick={() => openOrderItemsPreview(o)}>상품보기</button></td><td>{money(o.total)}</td><td><select value={memberOrderStatusDrafts[o.id] ?? o.status} onChange={(e) => setMemberOrderStatusDrafts((prev) => ({ ...prev, [o.id]: e.target.value }))}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" onClick={() => updateLiveOrder(o.id, { status: memberOrderStatusDrafts[o.id] ?? o.status })}>저장</button></td><td>{o.trackingNo || "-"}</td><td><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button></td><td><button type="button" onClick={() => beginEditLiveOrder(o)}>수정</button><button className="deleteBtn" type="button" disabled={o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button><button className="deleteBtn" type="button" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
+          <div className="tableWrap memberOrdersTable"><table><thead><tr><th>선택</th><th>라방일</th><th>라방명</th><th>상품</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>정산서</th><th>관리</th></tr></thead><tbody>
+            {selectedMemberOrders.map((o) => <tr key={o.id} className={["입금후킵", "입금후합배송", "정산후킵"].includes(String(o.status)) ? "dangerRow" : ""}><td><input type="checkbox" checked={selectedMemberOrderIds.includes(String(o.id))} onChange={(e) => setSelectedMemberOrderIds((prev) => e.target.checked ? Array.from(new Set([...prev, String(o.id)])) : prev.filter((id) => id !== String(o.id)))} /></td><td>{o.liveDate}</td><td>{o.liveTitle}</td><td><button type="button" onClick={() => openOrderItemsPreview(o)}>상품보기</button></td><td>{money(o.total)}</td><td><select value={memberOrderStatusDrafts[o.id] ?? o.status} onChange={(e) => setMemberOrderStatusDrafts((prev) => ({ ...prev, [o.id]: e.target.value }))}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" onClick={() => updateLiveOrder(o.id, { status: memberOrderStatusDrafts[o.id] ?? o.status })}>저장</button></td><td>{liveOrderKeepRangeText({ ...o, status: memberOrderStatusDrafts[o.id] ?? o.status }) || "-"}</td><td>{o.trackingNo || "-"}</td><td><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button></td><td><button type="button" onClick={() => beginEditLiveOrder(o)}>수정</button>{String(memberOrderStatusDrafts[o.id] ?? o.status) === "입금후합배송" && <button type="button" onClick={() => processLiveCombinedShipping({ ...o, status: memberOrderStatusDrafts[o.id] ?? o.status })}>합배송 진행</button>}<button className="deleteBtn" type="button" disabled={o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button><button className="deleteBtn" type="button" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
             {selectedMemberOrders.length === 0 && <tr><td colSpan="10" className="empty">선택 회원의 주문내역이 없어요.</td></tr>}
           </tbody></table></div>
         </div>

@@ -270,3 +270,7 @@ alter table live_orders add column if not exists keep_days text;
 
 -- v163 schema cache reload
 notify pgrst, 'reload schema';
+
+-- v166 live session close status
+alter table live_sessions add column if not exists status text default '진행중';
+alter table live_sessions add column if not exists closed_at text;
