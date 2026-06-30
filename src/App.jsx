@@ -4140,6 +4140,11 @@ ${text}`;
     return `${date.getMonth() + 1}/${date.getDate()}`;
   }
 
+  function formatKoreanDateFull(date) {
+    if (!date || Number.isNaN(date.getTime())) return "";
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
   function keepStartValueOf(order, session) {
     return order?.keepStartedAt || order?.paidAt || order?.updatedAt || order?.createdAt || session?.date || order?.liveDate;
   }
@@ -4162,6 +4167,11 @@ ${text}`;
   function liveOrderKeepShipText(order) {
     const end = liveOrderKeepAutoShipDate(order);
     return end ? `${formatKoreanMonthDay(end)} 이후 자동 발송` : "";
+  }
+
+  function liveOrderKeepExpiryText(order) {
+    const end = liveOrderKeepAutoShipDate(order);
+    return end ? formatKoreanDateFull(end) : "";
   }
 
   function liveOrderKeepDday(order) {
@@ -5442,12 +5452,14 @@ ${text}`;
     const prepaidAmount = (order.items || []).reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum + toInt(it.price) * toInt(it.qty) : sum, 0);
     const orderSubtotal = Object.prototype.hasOwnProperty.call(order || {}, "subtotal") ? toInt(order.subtotal) : toInt(order.paySubtotal) + prepaidAmount;
     const prepaidLine = prepaidAmount > 0 ? `<div><span>선결제 차감</span><b>-${money(prepaidAmount)}</b></div>` : "";
+    const keepExpiryText = liveOrderKeepExpiryText(order);
     const keepShipText = liveOrderKeepShipText(order);
-    const keepNotice = keepShipText ? `<div class="keepNotice"><b>킵 자동 발송 날짜</b> : ${htmlSafe(keepShipText)}</div>` : "";
+    const keepInfoRow = keepExpiryText ? `<tr><th>주문상태</th><td>${htmlSafe(order.status || "")}</td><th>킵 만료날짜</th><td>${htmlSafe(keepExpiryText)}</td></tr>` : "";
+    const keepNotice = keepExpiryText ? `<div class="keepNotice"><b>킵 만료날짜</b> : ${htmlSafe(keepExpiryText)}${keepShipText ? ` (${htmlSafe(keepShipText)})` : ""}</div>` : "";
     // v160: 정산서에는 카드수수료/포인트 정보를 표시하지 않습니다.
     return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlSafe(liveInvoiceFileBase(order))}</title><style>
       @page{size:A4 portrait;margin:0} html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00} .page{width:210mm;min-height:297mm;margin:10mm auto;background:white;padding:10mm;box-sizing:border-box;position:relative;page-break-after:always}.wm{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);font-size:54px;font-weight:900;color:#4a3b00;opacity:.035;pointer-events:none;z-index:0;white-space:nowrap}.content{position:relative;z-index:1}h1{text-align:center;font-size:24px;margin:4px 0 12px}.info{width:100%;border-collapse:collapse;margin-bottom:10px}.info th{background:#fff2b3;width:18%}.info th,.info td{border:1px solid #d6c15c;padding:7px;text-align:left;font-size:12px}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th{background:#ffd84d}.items th,.items td{border:1px solid #d6c15c;padding:6px;text-align:center;font-size:12px}.items td:nth-child(2){text-align:left;white-space:normal;word-break:keep-all}.sum{margin:14px auto 10px;width:360px;border:2px solid #d0aa00;background:#fff9e6}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:7px 12px}.sum div:last-child{border-bottom:none}.sum .total{background:#ffd84d;font-weight:900;font-size:17px}.keepNotice{border:2px solid #d0aa00;background:#fff2b3;padding:9px 12px;margin:10px 0;font-size:13px;font-weight:800;text-align:center}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:10px;margin-top:10px;font-size:12px}.no-print{position:fixed;right:12px;top:12px;z-index:99}@media print{html,body{background:white}.no-print{display:none}.page{margin:0;box-shadow:none}}
-    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(orderSubtotal)}</b></div>${prepaidLine}<div><span>배송비</span><b>${htmlSafe(liveShippingDisplay(order))}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
+    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr>${keepInfoRow}</table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(orderSubtotal)}</b></div>${prepaidLine}<div><span>배송비</span><b>${htmlSafe(liveShippingDisplay(order))}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
   }
 
   function openLiveInvoicesPrint(ordersToPrint) {
@@ -5487,16 +5499,18 @@ ${text}`;
     rows.push({ 상품명: "배송비", 실결제금액: liveShippingDisplay(order) });
     rows.push({ 상품명: "최종 결제금액", 실결제금액: order.total });
     const wb = XLSX.utils.book_new();
+    const keepExpiryText = liveOrderKeepExpiryText(order);
     const info = [
       ["여깁니다유 라이브 정산서"],
       ["라방날짜", order.liveDate || "", "정산번호", order.id],
       ["구매자", order.buyer || "", "연락처", order.phone || ""],
       ["주소", orderAddressOf(order)],
       ["결제방법", order.paymentMethod || "", "입금기한", session.notice?.split("\n")?.[0] || ""],
+      ...(keepExpiryText ? [["주문상태", order.status || "", "킵 만료날짜", keepExpiryText]] : []),
       [],
     ];
     const ws = XLSX.utils.aoa_to_sheet(info);
-    XLSX.utils.sheet_add_json(ws, rows, { origin: "A7", skipHeader: false });
+    XLSX.utils.sheet_add_json(ws, rows, { origin: `A${info.length + 1}`, skipHeader: false });
     XLSX.utils.book_append_sheet(wb, ws, "정산서");
     XLSX.writeFile(wb, `${liveInvoiceFileBase(order)}.xlsx`);
   }
@@ -5517,9 +5531,10 @@ ${text}`;
     rows.push({ 상품명: "배송비", 실결제금액: liveShippingDisplay(order) });
     rows.push({ 상품명: "최종 결제금액", 실결제금액: order.total });
     const wb = XLSX.utils.book_new();
-    const info = [["여깁니다유 라이브 정산서"],["라방날짜", order.liveDate || "", "정산번호", order.id],["구매자", order.buyer || "", "연락처", order.phone || ""],["주소", orderAddressOf(order)],["결제방법", order.paymentMethod || "", "입금계좌", [session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" ")],[]];
+    const keepExpiryText = liveOrderKeepExpiryText(order);
+    const info = [["여깁니다유 라이브 정산서"],["라방날짜", order.liveDate || "", "정산번호", order.id],["구매자", order.buyer || "", "연락처", order.phone || ""],["주소", orderAddressOf(order)],["결제방법", order.paymentMethod || "", "입금계좌", [session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" ")],...(keepExpiryText ? [["주문상태", order.status || "", "킵 만료날짜", keepExpiryText]] : []),[]];
     const ws = XLSX.utils.aoa_to_sheet(info);
-    XLSX.utils.sheet_add_json(ws, rows, { origin: "A7", skipHeader: false });
+    XLSX.utils.sheet_add_json(ws, rows, { origin: `A${info.length + 1}`, skipHeader: false });
     XLSX.utils.book_append_sheet(wb, ws, "정산서");
     return wb;
   }
