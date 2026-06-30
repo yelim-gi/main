@@ -3626,6 +3626,7 @@ ${text}`;
       deducted: !!r.deducted,
       paidAt: r.paid_at || r.paidAt || "",
       keepStartedAt: r.keep_started_at || r.keepStartedAt || "",
+      keepExpiryDate: r.keep_expiry_date || r.keepExpiryDate || "",
       keepDays: String(r.keep_days ?? r.keepDays ?? ""),
       usedPoints: toInt(r.used_points ?? r.usedPoints),
       earnedPoints: toInt(r.earned_points ?? r.earnedPoints),
@@ -3675,6 +3676,7 @@ ${text}`;
       deducted: !!row.deducted,
       paid_at: row.paidAt || "",
       keep_started_at: row.keepStartedAt || "",
+      keep_expiry_date: row.keepExpiryDate || "",
       keep_days: row.keepDays ? String(row.keepDays) : "",
       used_points: toInt(row.usedPoints),
       earned_points: toInt(row.earnedPoints),
@@ -3765,6 +3767,9 @@ ${text}`;
       bundle_id: row.bundleId || "",
       deducted: !!row.deducted,
       paid_at: row.paidAt || "",
+      keep_started_at: row.keepStartedAt || "",
+      keep_expiry_date: row.keepExpiryDate || "",
+      keep_days: row.keepDays ? String(row.keepDays) : "",
       used_points: toInt(row.usedPoints),
     };
   }
@@ -5373,10 +5378,11 @@ ${text}`;
       next = { ...next, cardApply: isFeePaymentMethod(next.paymentMethod), cardFee: calcLivePaymentFee(next, next.total) };
     }
     try {
-      if (hasStatusPatch || Object.prototype.hasOwnProperty.call(patch, "trackingNo")) {
+      if (hasStatusPatch || Object.prototype.hasOwnProperty.call(patch, "trackingNo") || Object.prototype.hasOwnProperty.call(patch, "keepExpiryDate")) {
         await saveLiveOrderStatusOnly(next, patch);
       } else {
         await saveLiveOrderDb(next);
+        writeLiveOrderStatusOverride(next);
       }
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
       setLiveOrderDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
@@ -5386,7 +5392,7 @@ ${text}`;
       }
       return next;
     } catch (error) {
-      alert("주문 수정 실패: " + (error.message || String(error)) + "\n\nSupabase SQL에서 live_orders.status / keep_started_at / keep_days 컬럼이 있는지 확인해줘.");
+      alert("주문 수정 실패: " + (error.message || String(error)) + "\n\nSupabase SQL에서 live_orders.status / keep_started_at / keep_expiry_date / keep_days 컬럼이 있는지 확인해줘.");
       throw error;
     }
   }
