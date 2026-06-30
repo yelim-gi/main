@@ -5632,8 +5632,7 @@ ${text}`;
       const mod = await import("html2pdf.js");
       html2pdf = mod.default || mod;
     } catch (error) {
-      alert("PDF ZIP 생성 라이브러리를 불러오지 못했어요. npm install 후 다시 배포해줘.
-필요 패키지: html2pdf.js");
+      alert("PDF ZIP 생성 라이브러리를 불러오지 못했어요. npm install 후 다시 배포해줘.\n필요 패키지: html2pdf.js");
       return;
     }
 
