@@ -274,3 +274,20 @@ notify pgrst, 'reload schema';
 -- v166 live session close status
 alter table live_sessions add column if not exists status text default '진행중';
 alter table live_sessions add column if not exists closed_at text;
+
+-- v177 상태/킵 저장 보강 패치 (이미 있으면 아무 일도 안 함)
+alter table live_orders add column if not exists status text default '미입금';
+alter table live_orders add column if not exists tracking_no text;
+alter table live_orders add column if not exists updated_at text;
+alter table live_orders add column if not exists paid_at text;
+alter table live_orders add column if not exists keep_started_at text;
+alter table live_orders add column if not exists keep_days text;
+alter table live_orders add column if not exists deducted boolean default false;
+
+-- 기존 주문 중 status가 비어있는 건만 미입금으로 보정
+update live_orders set status = '미입금' where status is null or trim(status) = '';
+
+-- RLS 정책 재확인
+alter table live_orders enable row level security;
+drop policy if exists "authenticated live_orders" on live_orders;
+create policy "authenticated live_orders" on live_orders for all to authenticated using (true) with check (true);
