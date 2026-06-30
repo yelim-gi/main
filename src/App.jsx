@@ -3913,12 +3913,28 @@ ${text}`;
   }
 
   async function saveLiveOrderDb(row) {
-    let { error } = await supabase.from("live_orders").upsert(liveOrderToDb(row));
-    if (error && isSchemaColumnError(error)) {
-      console.warn("live_orders 최신 컬럼이 없어 기본 컬럼으로 저장합니다. supabase_setup.sql을 다시 실행하면 적립포인트까지 저장돼요.", error);
-      ({ error } = await supabase.from("live_orders").upsert(liveOrderToDbBase(row)));
+    // v174: upsert가 환경/스키마에 따라 새로고침 후 상태가 되돌아가는 문제가 있어
+    // 기존 주문은 명시적으로 update, 없는 주문만 insert 하도록 저장 방식을 고정합니다.
+    async function savePayload(payload) {
+      const id = String(row.id);
+      const { data: updated, error: updateError } = await supabase
+        .from("live_orders")
+        .update(payload)
+        .eq("id", id)
+        .select("id");
+      if (updateError) throw updateError;
+      if (updated && updated.length > 0) return;
+      const { error: insertError } = await supabase.from("live_orders").insert(payload);
+      if (insertError) throw insertError;
     }
-    if (error) throw error;
+
+    try {
+      await savePayload(liveOrderToDb(row));
+    } catch (error) {
+      if (!isSchemaColumnError(error)) throw error;
+      console.warn("live_orders 최신 컬럼이 없어 기본 컬럼으로 저장합니다. supabase_setup.sql을 다시 실행하면 킵/포인트까지 저장돼요.", error);
+      await savePayload(liveOrderToDbBase(row));
+    }
   }
 
   function preserveLiveScroll(callback) {
@@ -5137,6 +5153,7 @@ ${text}`;
     try {
       await saveLiveOrderDb(next);
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
+      setLiveOrderDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
       if (hasStatusPatch && ["출고준비", "입금후합배송"].includes(String(patch.status || ""))) {
         addLiveOrderToShippingQueue(next);
       }
@@ -5933,7 +5950,7 @@ ${text}`;
   function LiveOrderPage() {
     const summary = liveCartSummary();
     const sales = liveSalesSummary();
-    const statusOptions = ["미입금", "입금확인", "입금후킵", "입금후합배송", "출고준비", "송장입력", "출고완료"];
+    const statusOptions = ["미입금", "입금확인", "입금후킵", "정산후킵", "입금후합배송", "출고준비", "송장입력", "출고완료"];
     const matchingOrders = sameLiveMemberOrders(liveOrderForm).filter((o) => String(o.sessionId) !== String(selectedLiveSession?.id) || ["정산후킵", "입금후킵", "입금후합배송"].includes(String(o.status)));
     const keepOrdersForCurrentBuyer = sameLiveKeepOrders(liveOrderForm, editingLiveOrderId);
     return (
@@ -6096,7 +6113,7 @@ ${text}`;
   }
 
   function MemberInfoPage() {
-    const statusOptions = ["미입금", "입금확인", "입금후킵", "입금후합배송", "출고준비", "송장입력", "출고완료"];
+    const statusOptions = ["미입금", "입금확인", "입금후킵", "정산후킵", "입금후합배송", "출고준비", "송장입력", "출고완료"];
     return (
       <section className="memberInfoPage">
         <div className="panel">
