@@ -5151,14 +5151,43 @@ ${text}`;
       next = { ...next, keepStartedAt: "", keepDays: "" };
     }
     try {
-      await saveLiveOrderDb(next);
+      if (hasStatusPatch) {
+        // v175: 상태 저장은 전체 upsert에 맡기지 않고 최소 컬럼만 먼저 확실히 update합니다.
+        // 일부 Supabase 스키마에 최신 컬럼이 빠져 있어도 status가 새로고침 후 미입금으로 돌아가지 않게 하기 위함입니다.
+        const statusPayload = {
+          status: next.status || "미입금",
+          tracking_no: next.trackingNo || "",
+          updated_at: next.updatedAt || nowString(),
+          paid_at: next.paidAt || "",
+        };
+        const { error: statusError } = await supabase
+          .from("live_orders")
+          .update(statusPayload)
+          .eq("id", String(orderId));
+        if (statusError) throw statusError;
+
+        // 킵 날짜 컬럼은 없을 수도 있으므로 별도로 저장하고, 컬럼 없으면 상태 저장은 유지합니다.
+        const keepPayload = {
+          keep_started_at: next.keepStartedAt || "",
+          keep_days: next.keepDays || "",
+        };
+        const { error: keepError } = await supabase
+          .from("live_orders")
+          .update(keepPayload)
+          .eq("id", String(orderId));
+        if (keepError && !isSchemaColumnError(keepError)) throw keepError;
+      } else {
+        await saveLiveOrderDb(next);
+      }
+
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
       setLiveOrderDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
+      setMemberOrderStatusDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
       if (hasStatusPatch && ["출고준비", "입금후합배송"].includes(String(patch.status || ""))) {
         addLiveOrderToShippingQueue(next);
       }
     } catch (error) {
-      alert("주문 수정 실패: " + error.message);
+      alert("주문 수정 실패: " + (error?.message || String(error)));
     }
   }
 
@@ -5471,8 +5500,10 @@ ${text}`;
     const prepaidLine = prepaidAmount > 0 ? `<div><span>선결제 차감</span><b>-${money(prepaidAmount)}</b></div>` : "";
     const keepExpiryText = liveOrderKeepExpiryText(order);
     const keepShipText = liveOrderKeepShipText(order);
-    const keepInfoRow = keepExpiryText ? `<tr><th>주문상태</th><td>${htmlSafe(order.status || "")}</td><th>킵 만료날짜</th><td>${htmlSafe(keepExpiryText)}</td></tr>` : "";
-    const keepNotice = keepExpiryText ? `<div class="keepNotice"><b>킵 만료날짜</b> : ${htmlSafe(keepExpiryText)}${keepShipText ? ` (${htmlSafe(keepShipText)})` : ""}</div>` : "";
+    const isKeepInvoice = KEEP_STATUSES.includes(String(order?.status || ""));
+    const keepDisplayText = isKeepInvoice ? (keepExpiryText || "킵기간 확인 필요") : "";
+    const keepInfoRow = isKeepInvoice ? `<tr><th>주문상태</th><td>${htmlSafe(order.status || "")}</td><th>킵 만료날짜</th><td>${htmlSafe(keepDisplayText)}</td></tr>` : "";
+    const keepNotice = isKeepInvoice ? `<div class="keepNotice"><b>킵 만료날짜</b> : ${htmlSafe(keepDisplayText)}${keepShipText ? ` (${htmlSafe(keepShipText)})` : ""}</div>` : "";
     const itemCount = Math.max((order.items || []).length, 1);
     const noticeLines = String(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.").split("\n").length;
     const pageHeightMm = 200;
