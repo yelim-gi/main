@@ -4326,12 +4326,14 @@ ${text}`;
     return Math.round(toInt(baseAmount ?? liveOrderProductSalesAmount(order)) * rate / 100);
   }
 
-  function calcLiveRowsMoneySummary(rows = [], fallbackSession = null) {
-    const paidRows = (rows || []).filter(isLivePaidOrder);
-    const soldItems = paidRows.flatMap((o) => o.items || []);
-    const productSales = paidRows.reduce((s, o) => s + liveOrderProductSalesAmount(o), 0);
+  function calcLiveRowsMoneySummary(rows = [], fallbackSession = null, options = {}) {
+    const { includeUnpaid = false, includeMaterialCost = true } = options || {};
+    // 기본 대시보드는 확정 주문만 계산하고, 미입금 예상순이익은 미입금 주문 자체를 대상으로 계산한다.
+    const targetRows = (rows || []).filter((o) => !o?.canceledAt && (includeUnpaid || isLivePaidOrder(o)));
+    const soldItems = targetRows.flatMap((o) => o.items || []);
+    const productSales = targetRows.reduce((s, o) => s + liveOrderProductSalesAmount(o), 0);
     const cost = soldItems.reduce((s, it) => s + toInt(it.wholesale) * toInt(it.qty), 0);
-    const cardFee = paidRows.reduce((s, o) => {
+    const cardFee = targetRows.reduce((s, o) => {
       const productAmount = liveOrderProductSalesAmount(o);
       return s + calcLivePaymentFee(o, productAmount, liveOrderSession(o, fallbackSession));
     }, 0);
@@ -4339,7 +4341,7 @@ ${text}`;
     // 배송비는 유료배송/무료배송 모두 실제 출고 규모로 따로 보여주되,
     // 순이익에서는 무료배송(사장 부담) 건만 비용으로 차감한다.
     const shippingGroups = new Map();
-    paidRows.forEach((o) => {
+    targetRows.forEach((o) => {
       const key = o.bundleId ? `bundle:${o.bundleId}` : `order:${o.id}`;
       const fee = liveOrderShippingFeeAmount(o, fallbackSession);
       if (!shippingGroups.has(key)) {
@@ -4351,17 +4353,18 @@ ${text}`;
     });
     const totalShippingFee = Array.from(shippingGroups.values()).reduce((s, g) => s + toInt(g.fee), 0);
     const freeShippingCost = Array.from(shippingGroups.values()).reduce((s, g) => s + (g.free ? toInt(g.fee) : 0), 0);
+    const materialCost = includeMaterialCost ? toInt(fallbackSession?.materialCost || selectedLiveSession?.materialCost || 0) : 0;
 
     return {
-      paidRows,
+      paidRows: targetRows,
       soldItems,
       productSales,
       cost,
       cardFee,
       totalShippingFee,
       freeShippingCost,
-      materialCost: toInt(fallbackSession?.materialCost || selectedLiveSession?.materialCost || 0),
-      profit: productSales - cost - cardFee - freeShippingCost - toInt(fallbackSession?.materialCost || selectedLiveSession?.materialCost || 0),
+      materialCost,
+      profit: productSales - cost - cardFee - freeShippingCost - materialCost,
     };
   }
 
@@ -5502,7 +5505,7 @@ ${text}`;
       liveFee: moneySummary.cardFee,
       profit: moneySummary.profit,
       unpaid: rows.filter((o) => ["미입금"].includes(String(o.status || ""))).reduce((s, o) => s + liveOrderProductSalesAmount(o), 0),
-      unpaidProfit: calcLiveRowsMoneySummary(rows.filter((o) => ["미입금"].includes(String(o.status || ""))), selectedLiveSession).profit,
+      unpaidProfit: calcLiveRowsMoneySummary(rows.filter((o) => ["미입금"].includes(String(o.status || ""))), selectedLiveSession, { includeUnpaid: true }).profit,
       allocated,
       remaining,
       soldQty: soldItems.reduce((s, it) => s + toInt(it.qty), 0),
