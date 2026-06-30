@@ -5429,7 +5429,7 @@ ${text}`;
 
   function liveShippingDisplay(order) {
     const shipping = toInt(order?.shipping);
-    if (shipping < 0) return `무료배송 (${money(Math.abs(shipping))} 환불)`;
+    if (shipping < 0) return `무료배송`;
     if (order?.shippingApply === false || order?.shipping_apply === false) return "배송비 선입완료";
     return money(shipping);
   }
@@ -5439,12 +5439,15 @@ ${text}`;
     const rows = (order.items || []).map((it, idx) => `
       <tr><td>${idx + 1}</td><td>${htmlSafe(it.name || "")}</td><td>${toInt(it.qty)}</td><td>${money(toInt(it.price) * toInt(it.qty))}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "Y" : "N"}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "0원" : money(toInt(it.price) * toInt(it.qty))}</td></tr>
     `).join("");
+    const prepaidAmount = (order.items || []).reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum + toInt(it.price) * toInt(it.qty) : sum, 0);
+    const orderSubtotal = Object.prototype.hasOwnProperty.call(order || {}, "subtotal") ? toInt(order.subtotal) : toInt(order.paySubtotal) + prepaidAmount;
+    const prepaidLine = prepaidAmount > 0 ? `<div><span>선결제 차감</span><b>-${money(prepaidAmount)}</b></div>` : "";
     const keepShipText = liveOrderKeepShipText(order);
     const keepNotice = keepShipText ? `<div class="keepNotice"><b>킵 자동 발송 날짜</b> : ${htmlSafe(keepShipText)}</div>` : "";
     // v160: 정산서에는 카드수수료/포인트 정보를 표시하지 않습니다.
     return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlSafe(liveInvoiceFileBase(order))}</title><style>
       @page{size:A4 portrait;margin:0} html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00} .page{width:210mm;min-height:297mm;margin:10mm auto;background:white;padding:10mm;box-sizing:border-box;position:relative;page-break-after:always}.wm{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);font-size:54px;font-weight:900;color:#4a3b00;opacity:.035;pointer-events:none;z-index:0;white-space:nowrap}.content{position:relative;z-index:1}h1{text-align:center;font-size:24px;margin:4px 0 12px}.info{width:100%;border-collapse:collapse;margin-bottom:10px}.info th{background:#fff2b3;width:18%}.info th,.info td{border:1px solid #d6c15c;padding:7px;text-align:left;font-size:12px}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th{background:#ffd84d}.items th,.items td{border:1px solid #d6c15c;padding:6px;text-align:center;font-size:12px}.items td:nth-child(2){text-align:left;white-space:normal;word-break:keep-all}.sum{margin:14px auto 10px;width:360px;border:2px solid #d0aa00;background:#fff9e6}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:7px 12px}.sum div:last-child{border-bottom:none}.sum .total{background:#ffd84d;font-weight:900;font-size:17px}.keepNotice{border:2px solid #d0aa00;background:#fff2b3;padding:9px 12px;margin:10px 0;font-size:13px;font-weight:800;text-align:center}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:10px;margin-top:10px;font-size:12px}.no-print{position:fixed;right:12px;top:12px;z-index:99}@media print{html,body{background:white}.no-print{display:none}.page{margin:0;box-shadow:none}}
-    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(order.paySubtotal)}</b></div><div><span>배송비</span><b>${htmlSafe(liveShippingDisplay(order))}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
+    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr></table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(orderSubtotal)}</b></div>${prepaidLine}<div><span>배송비</span><b>${htmlSafe(liveShippingDisplay(order))}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
   }
 
   function openLiveInvoicesPrint(ordersToPrint) {
@@ -5477,7 +5480,10 @@ ${text}`;
       실결제금액: String(it.prepaid).toUpperCase() === "Y" ? 0 : toInt(it.price) * toInt(it.qty),
     }));
     rows.push({ 상품명: "" });
-    rows.push({ 상품명: "상품합계", 실결제금액: order.paySubtotal });
+    const prepaidAmount = (order.items || []).reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum + toInt(it.price) * toInt(it.qty) : sum, 0);
+    const orderSubtotal = Object.prototype.hasOwnProperty.call(order || {}, "subtotal") ? toInt(order.subtotal) : toInt(order.paySubtotal) + prepaidAmount;
+    rows.push({ 상품명: "상품합계", 실결제금액: orderSubtotal });
+    if (prepaidAmount > 0) rows.push({ 상품명: "선결제 차감", 실결제금액: -prepaidAmount });
     rows.push({ 상품명: "배송비", 실결제금액: liveShippingDisplay(order) });
     rows.push({ 상품명: "최종 결제금액", 실결제금액: order.total });
     const wb = XLSX.utils.book_new();
@@ -5504,7 +5510,10 @@ ${text}`;
       실결제금액: String(it.prepaid).toUpperCase() === "Y" ? 0 : toInt(it.price) * toInt(it.qty),
     }));
     rows.push({ 상품명: "" });
-    rows.push({ 상품명: "상품합계", 실결제금액: order.paySubtotal });
+    const prepaidAmount = (order.items || []).reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum + toInt(it.price) * toInt(it.qty) : sum, 0);
+    const orderSubtotal = Object.prototype.hasOwnProperty.call(order || {}, "subtotal") ? toInt(order.subtotal) : toInt(order.paySubtotal) + prepaidAmount;
+    rows.push({ 상품명: "상품합계", 실결제금액: orderSubtotal });
+    if (prepaidAmount > 0) rows.push({ 상품명: "선결제 차감", 실결제금액: -prepaidAmount });
     rows.push({ 상품명: "배송비", 실결제금액: liveShippingDisplay(order) });
     rows.push({ 상품명: "최종 결제금액", 실결제금액: order.total });
     const wb = XLSX.utils.book_new();
@@ -6031,7 +6040,7 @@ ${text}`;
               <label>고객명</label><input value={liveOrderForm.buyer} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, buyer: e.target.value })} />
               <label>전화번호</label><input value={liveOrderForm.phone} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, phone: e.target.value })} />
               <button type="button" onClick={() => saveMemberFromOrderForm(true)}>회원저장</button>
-              <label>결제</label><select value={liveOrderForm.paymentMethod} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, paymentMethod: e.target.value })}><option>계좌이체</option><option>카드결제</option></select>
+              <label>결제</label><select value={liveOrderForm.paymentMethod} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, paymentMethod: e.target.value })}><option>미정</option><option>계좌이체</option><option>카드결제</option></select>
               <label>주문상태</label><select value={liveOrderForm.status} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, status: e.target.value })}><option>미입금</option><option>입금확인</option><option>입금후킵</option><option>입금후합배송</option><option>송장입력</option><option>출고완료</option></select>
             </div>
             {matchingOrders.length > 0 && <div className="statusLine dangerText">⚠ 같은 회원의 미출고/킵 주문 {matchingOrders.length}건이 있어요.
@@ -6039,13 +6048,13 @@ ${text}`;
             </div>}
             {String(liveOrderForm.status || "") === "입금후합배송" && keepOrdersForCurrentBuyer.length > 0 && <div className="statusLine dangerText">합배송 가능한 킵 주문: {keepOrdersForCurrentBuyer.map((o) => <span key={o.id} className="keepOrderChip">{o.liveDate} {liveOrderKeepMiniText(o)}</span>)} {editingLiveOrderId && <button type="button" onClick={() => processLiveCombinedShipping(liveOrders.find((o) => String(o.id) === String(editingLiveOrderId)))}>합배송 진행</button>} {!editingLiveOrderId && <small>주문 저장 후 주문관리에서 합배송 진행 버튼을 눌러줘.</small>}</div>}
             <div className="filterRow"><label>우편번호</label><input value={liveOrderForm.postalCode} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, postalCode: e.target.value })} /><button type="button" onClick={() => openDaumPostcode("order")}>우편번호 검색</button><label>기본주소</label><input className="wideInput" value={liveOrderForm.baseAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, baseAddress: e.target.value, address: [e.target.value, liveOrderForm.detailAddress].filter(Boolean).join(" ") })} /></div>
-            <div className="filterRow"><label>상세주소</label><input className="wideInput" value={liveOrderForm.detailAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, detailAddress: e.target.value, address: [liveOrderForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /><label className="checkLine"><input type="checkbox" checked={liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, shippingApply: e.target.checked, freeShippingRefund: e.target.checked ? false : liveOrderForm.freeShippingRefund })} />배송비 적용</label><label className="checkLine"><input type="checkbox" checked={!!liveOrderForm.freeShippingRefund} disabled={!!liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, freeShippingRefund: e.target.checked })} />무료배송 환불</label></div>
+            <div className="filterRow"><label>상세주소</label><input className="wideInput" value={liveOrderForm.detailAddress} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, detailAddress: e.target.value, address: [liveOrderForm.baseAddress, e.target.value].filter(Boolean).join(" ") })} /><label className="checkLine"><input type="checkbox" checked={liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, shippingApply: e.target.checked, freeShippingRefund: e.target.checked ? false : liveOrderForm.freeShippingRefund })} />배송비 적용</label><label className="checkLine"><input type="checkbox" checked={!!liveOrderForm.freeShippingRefund} disabled={!!liveOrderForm.shippingApply} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, freeShippingRefund: e.target.checked })} />무료배송</label></div>
             <div className="filterRow"><label>박스무게</label><select value={liveOrderForm.boxWeight} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, boxWeight: e.target.value })}><option>2</option><option>5</option></select><label>박스부피</label><select value={liveOrderForm.boxVolume} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, boxVolume: e.target.value })}><option>60</option><option>80</option><option>100</option></select><label>내용품</label><input value={liveOrderForm.household} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, household: e.target.value })} /><label>배송메모</label><input className="wideInput" value={liveOrderForm.deliveryMessage} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, deliveryMessage: e.target.value })} /></div>
             <div className="tableWrap liveCartTable"><table><thead><tr><th>상품명</th><th>수량</th><th>금액</th><th>선결제</th><th>실결제</th><th>삭제</th></tr></thead><tbody>
               {liveCart.map((it, idx) => <tr key={`${it.liveItemId}-${idx}`}><td title={it.name}>{it.name}</td><td><input className="tinyInput" value={it.qty} onChange={(e) => updateLiveCartItem(idx, { qty: e.target.value })} /></td><td><input value={it.price} onChange={(e) => updateLiveCartItem(idx, { price: e.target.value })} /></td><td><select value={it.prepaid} onChange={(e) => updateLiveCartItem(idx, { prepaid: e.target.value })}><option>N</option><option>Y</option></select></td><td>{String(it.prepaid).toUpperCase() === "Y" ? "0원" : money(toInt(it.price) * toInt(it.qty))}</td><td><button className="deleteBtn" onClick={() => setLiveCart(liveCart.filter((_, i) => i !== idx))}>삭제</button></td></tr>)}
               {liveCart.length === 0 && <tr><td colSpan="6" className="empty">라방 상품에서 담기를 눌러줘.</td></tr>}
             </tbody></table></div>
-            <p className="statusLine">상품합계 {money(summary.paySubtotal)} | 배송비 {summary.shipping < 0 ? `무료배송(${money(Math.abs(summary.shipping))} 환불)` : (!liveOrderForm.shippingApply ? "배송비 선입완료" : money(summary.shipping))} | 결제방법 {liveOrderForm.paymentMethod} | 최종 {money(summary.total)}</p>
+            <p className="statusLine">상품합계 {money(summary.subtotal)} | 배송비 {summary.shipping < 0 ? `무료배송` : (!liveOrderForm.shippingApply ? "배송비 선입완료" : money(summary.shipping))} | 결제방법 {liveOrderForm.paymentMethod} | 최종 {money(summary.total)}</p>
             <div className="filterRow"><label>주문메모</label><input className="wideInput" value={liveOrderForm.memo} onChange={(e) => setLiveOrderForm({ ...liveOrderForm, memo: e.target.value })} /><button onClick={saveLiveOrderAndDeduct}>{editingLiveOrderId ? "주문수정 저장" : "미입금 주문저장"}</button>{editingLiveOrderId && <button type="button" onClick={cancelLiveOrderEdit}>수정취소</button>}</div>
           </div>
 
