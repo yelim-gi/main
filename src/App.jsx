@@ -5505,7 +5505,7 @@ ${text}`;
       liveFee: moneySummary.cardFee,
       profit: moneySummary.profit,
       unpaid: rows.filter((o) => ["미입금"].includes(String(o.status || ""))).reduce((s, o) => s + liveOrderProductSalesAmount(o), 0),
-      unpaidProfit: calcLiveRowsMoneySummary(rows.filter((o) => ["미입금"].includes(String(o.status || ""))), selectedLiveSession, { includeUnpaid: true }).profit,
+      unpaidProfit: calcLiveRowsMoneySummary(rows.filter((o) => ["미입금"].includes(String(o.status || ""))), selectedLiveSession, { includeUnpaid: true, includeMaterialCost: false }).profit,
       allocated,
       remaining,
       soldQty: soldItems.reduce((s, it) => s + toInt(it.qty), 0),
