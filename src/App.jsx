@@ -3891,7 +3891,7 @@ ${text}`;
   async function getLiveOrders() {
     const { data, error } = await supabase.from("live_orders").select("*").order("created_at", { ascending: false });
     if (error) { if (!explainLiveTableMissing(error)) console.log(error); return; }
-    setLiveOrders((data || []).map(liveOrderFromDb));
+    setLiveOrders((data || []).map((row) => applyLiveOrderStatusOverride(liveOrderFromDb(row))));
   }
 
   async function saveLiveSessionDb(row) {
@@ -4141,6 +4141,43 @@ ${text}`;
   }
 
   const KEEP_STATUSES = ["정산후킵", "입금후킵", "입금후합배송"];
+
+  const LIVE_ORDER_STATUS_STORAGE_KEY = "yeogibnidayu_live_order_status_v1";
+
+  function readLiveOrderStatusOverrides() {
+    try { return JSON.parse(localStorage.getItem(LIVE_ORDER_STATUS_STORAGE_KEY) || "{}"); } catch { return {}; }
+  }
+
+  function writeLiveOrderStatusOverride(order) {
+    if (!order?.id) return;
+    try {
+      const map = readLiveOrderStatusOverrides();
+      map[String(order.id)] = {
+        status: String(order.status || "미입금"),
+        trackingNo: order.trackingNo || "",
+        paidAt: order.paidAt || "",
+        keepStartedAt: order.keepStartedAt || "",
+        keepDays: order.keepDays ? String(order.keepDays) : "",
+        updatedAt: order.updatedAt || nowString(),
+      };
+      localStorage.setItem(LIVE_ORDER_STATUS_STORAGE_KEY, JSON.stringify(map));
+    } catch {}
+  }
+
+  function applyLiveOrderStatusOverride(order) {
+    if (!order?.id) return order;
+    const saved = readLiveOrderStatusOverrides()[String(order.id)];
+    if (!saved) return order;
+    return {
+      ...order,
+      status: saved.status || order.status || "미입금",
+      trackingNo: saved.trackingNo ?? order.trackingNo ?? "",
+      paidAt: saved.paidAt || order.paidAt || "",
+      keepStartedAt: saved.keepStartedAt || order.keepStartedAt || "",
+      keepDays: saved.keepDays || order.keepDays || "",
+      updatedAt: saved.updatedAt || order.updatedAt || "",
+    };
+  }
 
   function parseDateOnlyKst(value) {
     const raw = String(value || "").trim();
@@ -5107,6 +5144,7 @@ ${text}`;
         order.keepDays = order.keepDays || String(session.keepDays || "14");
       }
       await saveLiveOrderDb(order);
+      writeLiveOrderStatusOverride(order);
 
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s));
       setLiveOrders((prev) => oldOrder ? prev.map((o) => String(o.id) === String(order.id) ? order : o) : [order, ...prev]);
@@ -5134,10 +5172,18 @@ ${text}`;
       keep_days: next.keepDays ? String(next.keepDays) : "",
       deducted: !!next.deducted,
     };
+    // DB 저장이 느리거나 스키마 캐시가 꼬여도 새로고침 후 상태/킵이 되돌아가지 않게 브라우저에도 같이 보관합니다.
+    writeLiveOrderStatusOverride(next);
 
     async function tryUpdate(obj) {
-      const { error } = await supabase.from("live_orders").update(obj).eq("id", String(next.id));
-      return error;
+      const { data, error } = await supabase.from("live_orders").update(obj).eq("id", String(next.id)).select("id");
+      if (error) return error;
+      if (Array.isArray(data) && data.length === 0) {
+        const insertPayload = { ...liveOrderToDbBase(next), ...obj, id: String(next.id) };
+        const { error: insertError } = await supabase.from("live_orders").upsert(insertPayload);
+        return insertError || null;
+      }
+      return null;
     }
 
     let error = await tryUpdate(payload);
@@ -5697,10 +5743,6 @@ ${text}`;
   function printSelectedLiveInvoices(mode = "selected") {
     const targets = mode === "all" ? liveFilteredOrders : liveSelectedOrdersForInvoice();
     if (!targets.length) return alert("출력할 주문을 선택해줘.");
-    if (mode === "all" || targets.length > 1) {
-      downloadLiveInvoicePdfZip(mode);
-      return;
-    }
     openLiveInvoicesPrint(targets);
   }
 
@@ -6218,7 +6260,7 @@ ${text}`;
               <label>주문검색</label><input value={liveOrderSearch} onChange={(e) => setLiveOrderSearch(e.target.value)} placeholder="구매자/전화/상품명/송장/메모" />
               <label className="checkLine"><input type="checkbox" checked={liveDueOnly} onChange={(e) => setLiveDueOnly(e.target.checked)} />출고필요만 보기</label>
               <span className="statusLine">상태 변경은 각 주문 행의 드롭다운에서 저장돼요.</span>
-              <button type="button" onClick={() => setSelectedLiveInvoiceIds(liveFilteredOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedLiveInvoiceIds([])}>선택해제</button><button type="button" onClick={() => printSelectedLiveInvoices("selected")}>선택 PDF</button><button type="button" onClick={() => printSelectedLiveInvoices("all")}>전체 PDF ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("selected")}>선택 엑셀 ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("all")}>전체 엑셀 ZIP</button>
+              <button type="button" onClick={() => setSelectedLiveInvoiceIds(liveFilteredOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedLiveInvoiceIds([])}>선택해제</button><button type="button" onClick={() => printSelectedLiveInvoices("selected")}>선택 PDF</button><button type="button" onClick={() => printSelectedLiveInvoices("all")}>전체 PDF</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("selected")}>선택 엑셀 ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("all")}>전체 엑셀 ZIP</button>
             </div>
             <div className="tableWrap liveOrdersTable"><table><thead><tr><th>선택</th><th>구매자</th><th>상품</th><th>라방일</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th><th>삭제</th></tr></thead><tbody>
               {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td><input type="checkbox" checked={selectedLiveInvoiceIds.includes(String(o.id))} onChange={(e) => setSelectedLiveInvoiceIds((prev) => e.target.checked ? Array.from(new Set([...prev, String(o.id)])) : prev.filter((id) => id !== String(o.id)))} /></td><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small><br/><button type="button" disabled={!!o.canceledAt || o.locked} onClick={() => beginEditLiveOrder(o)}>수정</button></td><td><button type="button" onClick={() => openOrderItemsPreview(o)}>상품보기</button></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={(liveOrderDrafts[o.id]?.status ?? o.status)} onChange={(e) => { const nextStatus = e.target.value; setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), status: nextStatus } })); updateLiveOrder(o.id, { status: nextStatus, trackingNo: liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "" }); }}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" disabled={o.locked} onClick={() => { const d = liveOrderDrafts[o.id] || {}; updateLiveOrder(o.id, { status: d.status ?? o.status, trackingNo: d.trackingNo ?? o.trackingNo ?? "" }); }}>저장</button></td><td>{liveOrderKeepDday({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}</td><td><input disabled={o.locked || ["정산후킵", "입금후킵", "입금후합배송"].includes(liveOrderDrafts[o.id]?.status ?? o.status)} value={(liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "")} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), trackingNo: e.target.value, status: e.target.value ? "송장입력" : (prev[o.id]?.status ?? o.status) } }))} /></td><td>{o.bundleId ? <span className="bundleBadge">묶임</span> : <button onClick={() => bundleLiveOrdersFor(o)}>합치기</button>}{String(liveOrderDrafts[o.id]?.status ?? o.status) === "입금후합배송" && <button type="button" onClick={() => processLiveCombinedShipping({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}>합배송 진행</button>}</td><td><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
