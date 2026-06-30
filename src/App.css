@@ -4975,3 +4975,31 @@ input.liveNameInput {
 .liveOrdersTable th:nth-child(2), .liveOrdersTable td:nth-child(2) { width: 90px; }
 .liveOrdersTable th:nth-child(3), .liveOrdersTable td:nth-child(3) { width: 70px; }
 .liveOrdersTable td:nth-child(2) button { margin-top: 2px; height: 19px; padding: 0 6px; }
+
+
+/* v186: 택배접수 sticky 겹침 방지 */
+.shippingRegisterPage {
+  position: relative !important;
+  z-index: 30 !important;
+}
+.shippingTablePanel {
+  position: relative !important;
+  z-index: 10 !important;
+}
+.shippingTableWrap table thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 20 !important;
+  background: #fff2b3 !important;
+}
+.shippingTableWrap tbody td {
+  position: relative !important;
+  z-index: 1 !important;
+  background: #fff !important;
+}
+.shippingTableWrap input,
+.shippingTableWrap select,
+.shippingTableWrap textarea {
+  position: relative !important;
+  z-index: 1 !important;
+}
