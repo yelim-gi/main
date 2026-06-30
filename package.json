@@ -11,7 +11,8 @@
     "react-dom": "latest",
     "@supabase/supabase-js": "latest",
     "xlsx": "latest",
-    "jszip": "latest"
+    "jszip": "latest",
+    "html2pdf.js": "latest"
   },
   "devDependencies": {}
 }

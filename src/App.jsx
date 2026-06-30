@@ -5621,8 +5621,87 @@ ${text}`;
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  async function downloadLiveInvoicePdfZip(mode = "selected") {
+    const targets = mode === "all" ? liveFilteredOrders : liveSelectedOrdersForInvoice();
+    if (!targets.length) return alert("다운로드할 주문을 선택해줘.");
+
+    // 브라우저 보안상 PDF 여러 개를 각각 자동 저장할 수 없어서,
+    // 주문별 PDF를 만든 뒤 ZIP 하나로 묶어 다운로드한다.
+    let html2pdf;
+    try {
+      const mod = await import("html2pdf.js");
+      html2pdf = mod.default || mod;
+    } catch (error) {
+      alert("PDF ZIP 생성 라이브러리를 불러오지 못했어요. npm install 후 다시 배포해줘.
+필요 패키지: html2pdf.js");
+      return;
+    }
+
+    const zip = new JSZip();
+    const styleNodes = [];
+
+    try {
+      for (const order of targets) {
+        const invoiceDoc = new DOMParser().parseFromString(liveInvoiceHtml(order, false), "text/html");
+        const styleEl = invoiceDoc.querySelector("style");
+        const pageEl = invoiceDoc.querySelector(".page");
+        if (!pageEl) continue;
+
+        const styleClone = styleEl ? document.createElement("style") : null;
+        if (styleClone) {
+          styleClone.textContent = styleEl.textContent || "";
+          document.head.appendChild(styleClone);
+          styleNodes.push(styleClone);
+        }
+
+        const holder = document.createElement("div");
+        holder.style.position = "fixed";
+        holder.style.left = "-10000px";
+        holder.style.top = "0";
+        holder.style.width = "210mm";
+        holder.style.background = "#ffffff";
+        holder.appendChild(pageEl.cloneNode(true));
+        document.body.appendChild(holder);
+
+        const pdfBlob = await html2pdf()
+          .set({
+            margin: 0,
+            filename: `${liveInvoiceFileBase(order)}.pdf`,
+            image: { type: "jpeg", quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+            jsPDF: { unit: "mm", format: [210, 200], orientation: "portrait" },
+            pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+          })
+          .from(holder.querySelector(".page"))
+          .outputPdf("blob");
+
+        zip.file(`${liveInvoiceFileBase(order)}.pdf`, pdfBlob);
+        holder.remove();
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${mmdd(selectedLiveSession?.date)}_라방정산서_PDF_${mode === "all" ? "전체" : "선택"}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (error) {
+      console.error(error);
+      alert("PDF ZIP 생성 중 오류가 났어요: " + String(error?.message || error));
+    } finally {
+      styleNodes.forEach((el) => el.remove());
+    }
+  }
+
   function printSelectedLiveInvoices(mode = "selected") {
     const targets = mode === "all" ? liveFilteredOrders : liveSelectedOrdersForInvoice();
+    if (!targets.length) return alert("출력할 주문을 선택해줘.");
+    if (mode === "all" || targets.length > 1) {
+      downloadLiveInvoicePdfZip(mode);
+      return;
+    }
     openLiveInvoicesPrint(targets);
   }
 
@@ -6140,7 +6219,7 @@ ${text}`;
               <label>주문검색</label><input value={liveOrderSearch} onChange={(e) => setLiveOrderSearch(e.target.value)} placeholder="구매자/전화/상품명/송장/메모" />
               <label className="checkLine"><input type="checkbox" checked={liveDueOnly} onChange={(e) => setLiveDueOnly(e.target.checked)} />출고필요만 보기</label>
               <span className="statusLine">상태 변경은 각 주문 행의 드롭다운에서 저장돼요.</span>
-              <button type="button" onClick={() => setSelectedLiveInvoiceIds(liveFilteredOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedLiveInvoiceIds([])}>선택해제</button><button type="button" onClick={() => printSelectedLiveInvoices("selected")}>선택 PDF</button><button type="button" onClick={() => printSelectedLiveInvoices("all")}>전체 PDF</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("selected")}>선택 엑셀 ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("all")}>전체 엑셀 ZIP</button>
+              <button type="button" onClick={() => setSelectedLiveInvoiceIds(liveFilteredOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedLiveInvoiceIds([])}>선택해제</button><button type="button" onClick={() => printSelectedLiveInvoices("selected")}>선택 PDF</button><button type="button" onClick={() => printSelectedLiveInvoices("all")}>전체 PDF ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("selected")}>선택 엑셀 ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("all")}>전체 엑셀 ZIP</button>
             </div>
             <div className="tableWrap liveOrdersTable"><table><thead><tr><th>선택</th><th>구매자</th><th>상품</th><th>라방일</th><th>금액</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th><th>삭제</th></tr></thead><tbody>
               {liveFilteredOrders.map((o) => <tr key={o.id} className={o.canceledAt ? "dangerRow" : isLiveKeepDueSoon(o) ? "dangerRow" : o.locked ? "lockedRow" : ""}><td><input type="checkbox" checked={selectedLiveInvoiceIds.includes(String(o.id))} onChange={(e) => setSelectedLiveInvoiceIds((prev) => e.target.checked ? Array.from(new Set([...prev, String(o.id)])) : prev.filter((id) => id !== String(o.id)))} /></td><td>{o.buyer}<br/><small>{phoneLast4(o.phone)}</small><br/><button type="button" disabled={!!o.canceledAt || o.locked} onClick={() => beginEditLiveOrder(o)}>수정</button></td><td><button type="button" onClick={() => openOrderItemsPreview(o)}>상품보기</button></td><td>{o.liveDate}</td><td>{money(o.total)}</td><td><select disabled={o.locked} value={(liveOrderDrafts[o.id]?.status ?? o.status)} onChange={(e) => { const nextStatus = e.target.value; setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), status: nextStatus } })); updateLiveOrder(o.id, { status: nextStatus, trackingNo: liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "" }); }}>{statusOptions.map((s) => <option key={s}>{s}</option>)}</select><button type="button" disabled={o.locked} onClick={() => { const d = liveOrderDrafts[o.id] || {}; updateLiveOrder(o.id, { status: d.status ?? o.status, trackingNo: d.trackingNo ?? o.trackingNo ?? "" }); }}>저장</button></td><td>{liveOrderKeepDday({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}</td><td><input disabled={o.locked || ["정산후킵", "입금후킵", "입금후합배송"].includes(liveOrderDrafts[o.id]?.status ?? o.status)} value={(liveOrderDrafts[o.id]?.trackingNo ?? o.trackingNo ?? "")} onChange={(e) => setLiveOrderDrafts((prev) => ({ ...prev, [o.id]: { ...(prev[o.id] || { status: o.status, trackingNo: o.trackingNo || "" }), trackingNo: e.target.value, status: e.target.value ? "송장입력" : (prev[o.id]?.status ?? o.status) } }))} /></td><td>{o.bundleId ? <span className="bundleBadge">묶임</span> : <button onClick={() => bundleLiveOrdersFor(o)}>합치기</button>}{String(liveOrderDrafts[o.id]?.status ?? o.status) === "입금후합배송" && <button type="button" onClick={() => processLiveCombinedShipping({ ...o, status: liveOrderDrafts[o.id]?.status ?? o.status })}>합배송 진행</button>}</td><td><button type="button" onClick={() => downloadLiveInvoiceExcel(o)}>엑셀</button><button type="button" onClick={() => openLiveInvoicePdf(o)}>PDF</button><button type="button" onClick={() => updateLiveOrder(o.id, { locked: !o.locked })}>{o.locked ? "해제" : "잠금"}</button></td><td><button className="deleteBtn" disabled={!!o.canceledAt || o.locked} onClick={() => cancelLiveOrderWithRestore(o)}>취소</button></td><td><button className="deleteBtn" disabled={o.locked} onClick={() => deleteLiveOrderWithRestore(o)}>삭제</button></td></tr>)}
