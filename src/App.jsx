@@ -4606,13 +4606,33 @@ ${text}`;
 
   async function updateLiveItem(itemId, patch) {
     if (!selectedLiveSession) return;
+    const oldItem = (selectedLiveSession.products || []).find((it) => String(it.id) === String(itemId));
     const nextSession = {
       ...selectedLiveSession,
       products: (selectedLiveSession.products || []).map((it) => String(it.id) === String(itemId) ? { ...it, ...patch } : it)
     };
     try {
       await saveLiveSessionDb(nextSession);
+
+      // 라방용 상품명을 바꾸면 이미 작성된 해당 라방 주문서의 같은 품목명도 함께 변경한다.
+      const renamed = Object.prototype.hasOwnProperty.call(patch, "name") && String(patch.name || "") !== String(oldItem?.name || "");
+      let changedOrders = [];
+      if (renamed) {
+        changedOrders = liveOrders
+          .filter((o) => String(o.sessionId) === String(selectedLiveSession.id))
+          .filter((o) => (o.items || []).some((it) => String(it.liveItemId) === String(itemId)))
+          .map((o) => ({
+            ...o,
+            items: (o.items || []).map((it) => String(it.liveItemId) === String(itemId) ? { ...it, name: String(patch.name || "") } : it),
+            updatedAt: nowString(),
+          }));
+        for (const order of changedOrders) await saveLiveOrderDb(order);
+      }
+
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s)));
+      if (changedOrders.length) {
+        setLiveOrders((prev) => prev.map((o) => changedOrders.find((x) => String(x.id) === String(o.id)) || o));
+      }
       setLiveItemDrafts((prev) => {
         const next = { ...prev };
         delete next[itemId];
@@ -4620,6 +4640,7 @@ ${text}`;
       });
     } catch (error) {
       alert("라방 상품 수정 실패: " + error.message);
+      await Promise.all([getLiveSessions(), getLiveOrders()]);
     }
   }
 
@@ -6099,6 +6120,16 @@ ${text}`;
   }
 
 
+  function openSelectedPreviousLiveSession() {
+    if (!copyLiveSourceId) return alert("열어볼 이전 라방을 선택해줘.");
+    const source = liveSessions.find((s) => String(s.id) === String(copyLiveSourceId));
+    if (!source) return alert("이전 라방을 찾을 수 없어요.");
+    resetLiveOrderFormAfterSave();
+    setSelectedLiveSessionId(source.id);
+    setCopyLiveSourceId("");
+    alert(`${source.date || ""} ${source.title || "이전 라방"}을 열었어요. 해당 라방 상품과 주문서가 함께 표시돼요.`);
+  }
+
   async function copyProductsFromLiveSession() {
     if (!selectedLiveSession) return alert("먼저 새 라방을 선택해줘.");
     if (!copyLiveSourceId) return alert("불러올 이전 라방을 선택해줘.");
@@ -6325,7 +6356,7 @@ ${text}`;
               <button type="button" onClick={saveLiveSessionDraft}>라방 설정 저장</button>
             </div>
             <div className="filterRow">
-              <label>이전 라방 상품 불러오기</label><select value={copyLiveSourceId} onChange={(e) => setCopyLiveSourceId(e.target.value)}><option value="">선택 안 함</option>{liveSessions.filter((s) => String(s.id) !== String(selectedLiveSession.id)).map((s) => <option key={s.id} value={s.id}>{s.date} {s.title}</option>)}</select><button type="button" onClick={copyProductsFromLiveSession}>선택 라방 상품 복사</button>
+              <label>이전 라방</label><select value={copyLiveSourceId} onChange={(e) => setCopyLiveSourceId(e.target.value)}><option value="">선택 안 함</option>{liveSessions.filter((s) => String(s.id) !== String(selectedLiveSession.id)).map((s) => <option key={s.id} value={s.id}>{s.date} {s.title}</option>)}</select><button type="button" onClick={openSelectedPreviousLiveSession}>선택 라방 열기(주문서 포함)</button><button type="button" onClick={copyProductsFromLiveSession}>상품만 현재 라방에 복사</button>
             </div>
             <div className="liveSummaryCards">
               <div><span>주문자수</span><b>{sales.buyerCount.toLocaleString()}명</b></div>
