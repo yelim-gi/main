@@ -146,6 +146,8 @@ create table if not exists live_sessions (
   keep_days text default '7',
   shipping_fee text default '4000',
   card_fee_rate text default '3',
+  cash_receipt_fee_rate text default '0',
+  material_cost integer default 0,
   bank_name text,
   account_number text,
   account_holder text,
@@ -210,6 +212,8 @@ alter table live_members add column if not exists postal_code text;
 alter table live_members add column if not exists base_address text;
 alter table live_members add column if not exists detail_address text;
 
+alter table live_orders add column if not exists free_shipping boolean default false;
+alter table live_orders add column if not exists shipping_refund boolean default false;
 alter table live_orders add column if not exists postal_code text;
 alter table live_orders add column if not exists base_address text;
 alter table live_orders add column if not exists detail_address text;
@@ -291,3 +295,10 @@ update live_orders set status = '미입금' where status is null or trim(status)
 alter table live_orders enable row level security;
 drop policy if exists "authenticated live_orders" on live_orders;
 create policy "authenticated live_orders" on live_orders for all to authenticated using (true) with check (true);
+
+
+-- v186 요청사항 패치: 킵 직접 날짜 / 결제수단별 수수료 / 라방 재료비
+alter table live_orders add column if not exists keep_expiry_date text;
+alter table live_sessions add column if not exists cash_receipt_fee_rate text default '0';
+alter table live_sessions add column if not exists material_cost integer default 0;
+notify pgrst, 'reload schema';
