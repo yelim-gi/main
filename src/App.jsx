@@ -4450,26 +4450,41 @@ ${text}`;
   }, [liveOrders, selectedLiveSessionId]);
 
   useEffect(() => {
-    const ready = liveOrders.filter((o) => !o.canceledAt && ["출고준비", "입금후합배송"].includes(String(o.status || "")));
-    if (ready.length === 0) return;
+    // 라방 자동 택배접수 목록은 현재 주문 상태를 기준으로 매번 새로 만든다.
+    // 정확히 "출고준비"인 주문만 포함하므로, 예전에 생성된 행이나 다른 상태 주문이 남지 않는다.
+    const ready = liveOrders.filter((o) => !o.canceledAt && String(o.status || "").trim() === "출고준비");
+
     setShippingRows((prev) => {
-      let next = [...prev];
-      for (const order of ready) {
-        const row = buildShippingRowFromLiveOrder(order);
-        if (!row) continue;
-        const ids = new Set(row.sourceOrderIds || [row.sourceOrderId]);
-        const idx = next.findIndex((x) => (x.sourceOrderIds || [x.sourceOrderId]).some((id) => ids.has(String(id))));
-        if (idx >= 0) next[idx] = { ...next[idx], ...row, selected: next[idx].selected };
-        else next.unshift(row);
-      }
-      return next;
+      const manualRows = prev.filter((row) => !row.sourceOrderId && !(row.sourceOrderIds || []).length);
+      const previousAutoRows = prev.filter((row) => row.sourceOrderId || (row.sourceOrderIds || []).length);
+
+      // 합배송 주문은 같은 bundleId끼리 한 행으로 만들고, 일반 주문은 주문별 한 행으로 만든다.
+      const groups = new Map();
+      ready.forEach((order) => {
+        const key = order.bundleId ? `bundle:${order.bundleId}` : `order:${order.id}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(order);
+      });
+
+      const autoRows = Array.from(groups.values()).map((orders) => {
+        const row = buildShippingRowFromLiveOrders(orders);
+        if (!row) return null;
+        const linkedIds = new Set((row.sourceOrderIds || [row.sourceOrderId]).map(String));
+        const oldRow = previousAutoRows.find((candidate) => {
+          const oldIds = (candidate.sourceOrderIds || (candidate.sourceOrderId ? [candidate.sourceOrderId] : [])).map(String);
+          return oldIds.length === linkedIds.size && oldIds.every((id) => linkedIds.has(id));
+        });
+        return oldRow ? { ...row, selected: !!oldRow.selected } : row;
+      }).filter(Boolean);
+
+      return [...autoRows, ...manualRows];
     });
   }, [liveOrders]);
 
   async function confirmLiveShippingRow(row) {
     const ids = (row?.sourceOrderIds || (row?.sourceOrderId ? [row.sourceOrderId] : [])).map(String);
     if (!ids.length) return alert("라방 주문과 연결된 택배건이 아니에요.");
-    const targets = liveOrders.filter((o) => ids.includes(String(o.id)) && !o.canceledAt);
+    const targets = liveOrders.filter((o) => ids.includes(String(o.id)) && !o.canceledAt && String(o.status || "") === "출고준비");
     if (!targets.length) return alert("연결된 라방 주문을 찾을 수 없어요.");
     if (!window.confirm(`${row.receiverName || targets[0].buyer} 합배송 ${targets.length}건을 출고완료로 바꿀까요?`)) return;
     for (const order of targets) await updateLiveOrder(order.id, { status: "출고완료", keepStartedAt: "", keepExpiryDate: "", keepDays: "", bundleId: "" });
@@ -4495,7 +4510,7 @@ ${text}`;
     if (!window.confirm(`${anchorOrder.buyer}님 주문 ${targets.length}건을 합배송 처리하고 택배접수에 올릴까요?`)) return;
     const updated = [];
     for (const o of targets) {
-      const next = { ...o, bundleId, status: "입금후합배송", trackingNo: "", updatedAt: nowString(), keepStartedAt: o.keepStartedAt || nowString(), keepDays: o.keepDays || String((liveSessions.find((s) => String(s.id) === String(o.sessionId)) || selectedLiveSession || {}).keepDays || "14") };
+      const next = { ...o, bundleId, status: "출고준비", trackingNo: "", updatedAt: nowString(), keepStartedAt: "", keepExpiryDate: "", keepDays: "" };
       await saveLiveOrderDb(next);
       updated.push(next);
     }
@@ -5417,8 +5432,14 @@ ${text}`;
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
       setLiveOrderDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
       setMemberOrderStatusDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
-      if (hasStatusPatch && ["출고준비", "입금후합배송"].includes(String(patch.status || ""))) {
+      if (hasStatusPatch && String(patch.status || "") === "출고준비") {
         addLiveOrderToShippingQueue(next);
+      } else if (hasStatusPatch) {
+        // 출고준비가 아닌 상태로 바뀌면 기존 자동 택배접수 행에서도 제거한다.
+        setShippingRows((prev) => prev.filter((row) => {
+          const linkedIds = (row.sourceOrderIds || (row.sourceOrderId ? [row.sourceOrderId] : [])).map(String);
+          return !linkedIds.includes(String(orderId));
+        }));
       }
       return next;
     } catch (error) {
@@ -7026,7 +7047,7 @@ ${text}`;
     selectedRows.forEach((row) => {
       (row.sourceOrderIds || [row.sourceOrderId]).filter(Boolean).forEach((id) => selectedIds.add(String(id)));
     });
-    const targets = liveOrders.filter((order) => selectedIds.has(String(order.id)) && !order.canceledAt && String(order.status || "") !== "출고완료");
+    const targets = liveOrders.filter((order) => selectedIds.has(String(order.id)) && !order.canceledAt && String(order.status || "") === "출고준비");
     if (targets.length === 0) return alert("출고확정할 주문을 찾을 수 없어요.");
     if (!window.confirm(`선택한 택배 ${selectedRows.length}건에 연결된 주문 ${targets.length}건을 모두 출고완료로 바꿀까요?`)) return;
 
