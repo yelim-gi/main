@@ -404,6 +404,7 @@ export default function App() {
   const [financeMonth, setFinanceMonth] = useState("전체");
   const [shippingPasteText, setShippingPasteText] = useState("");
   const [shippingRows, setShippingRows] = useState([]);
+  const [hideLiveShippingRows, setHideLiveShippingRows] = useState(false);
   const [v48ManualStrictCharsOnly, setV48ManualStrictCharsOnly] = useState(false);
   const [v48ScoopStrictCharsOnly, setV48ScoopStrictCharsOnly] = useState(false);
 
@@ -4456,6 +4457,7 @@ ${text}`;
 
     setShippingRows((prev) => {
       const manualRows = prev.filter((row) => !row.sourceOrderId && !(row.sourceOrderIds || []).length);
+      if (hideLiveShippingRows) return manualRows;
       const previousAutoRows = prev.filter((row) => row.sourceOrderId || (row.sourceOrderIds || []).length);
 
       // 합배송 주문은 같은 bundleId끼리 한 행으로 만들고, 일반 주문은 주문별 한 행으로 만든다.
@@ -4479,7 +4481,7 @@ ${text}`;
 
       return [...autoRows, ...manualRows];
     });
-  }, [liveOrders]);
+  }, [liveOrders, hideLiveShippingRows]);
 
   async function confirmLiveShippingRow(row) {
     const ids = (row?.sourceOrderIds || (row?.sourceOrderId ? [row.sourceOrderId] : [])).map(String);
@@ -7020,7 +7022,26 @@ ${text}`;
 
     if (converted.length === 0) return alert("변환할 수 있는 주문 데이터가 없어요. 복사한 데이터 순서를 확인해줘.");
 
-    setShippingRows(converted);
+    const hasLiveShippingRows = getEffectiveShippingRows().some(
+      (row) => row.sourceOrderId || (row.sourceOrderIds || []).length
+    );
+
+    if (hasLiveShippingRows) {
+      const replaceCurrentList = window.confirm(
+        "현재 접수목록을 비우고 추가하시겠어요?\n\n예: 기존 라방 택배접수건을 숨기고 방금 입력한 건만 표시\n아니오: 기존 라방 택배접수건 아래에 방금 입력한 건 추가"
+      );
+
+      if (replaceCurrentList) {
+        setHideLiveShippingRows(true);
+        setShippingRows(converted);
+      } else {
+        setHideLiveShippingRows(false);
+        setShippingRows((prev) => [...prev, ...converted]);
+      }
+    } else {
+      setShippingRows(converted);
+    }
+
     alert(`${converted.length}건을 택배접수 양식으로 변환했어요.`);
   }
 
@@ -7076,10 +7097,36 @@ ${text}`;
     setShippingRows([]);
   }
 
-  function downloadShippingExcel() {
-    if (shippingRows.length === 0) return alert("다운로드할 택배접수 목록이 없어요.");
 
-    const rows = shippingRows.map((row) => [
+  function getEffectiveShippingRows() {
+    const manualRows = shippingRows.filter((row) => !row.sourceOrderId && !(row.sourceOrderIds || []).length);
+    if (hideLiveShippingRows) return manualRows;
+    const previousAutoRows = shippingRows.filter((row) => row.sourceOrderId || (row.sourceOrderIds || []).length);
+    const readyOrders = liveOrders.filter((order) => !order.canceledAt && String(order.status || "").trim() === "출고준비");
+
+    const groups = new Map();
+    readyOrders.forEach((order) => {
+      const key = order.bundleId ? `bundle:${order.bundleId}` : `order:${order.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(order);
+    });
+
+    const autoRows = Array.from(groups.values()).map((orders) => {
+      const freshRow = buildShippingRowFromLiveOrders(orders);
+      if (!freshRow) return null;
+      const freshIds = new Set((freshRow.sourceOrderIds || [freshRow.sourceOrderId]).filter(Boolean).map(String));
+      const oldRow = previousAutoRows.find((candidate) => {
+        const oldIds = (candidate.sourceOrderIds || (candidate.sourceOrderId ? [candidate.sourceOrderId] : [])).filter(Boolean).map(String);
+        return oldIds.length === freshIds.size && oldIds.every((id) => freshIds.has(id));
+      });
+      return oldRow ? { ...freshRow, ...oldRow, sourceOrderId: freshRow.sourceOrderId, sourceOrderIds: freshRow.sourceOrderIds, bundleId: freshRow.bundleId, orderStatus: freshRow.orderStatus } : freshRow;
+    }).filter(Boolean);
+
+    return [...autoRows, ...manualRows];
+  }
+
+  function writeShippingExcel(rowsToDownload, filename) {
+    const rows = rowsToDownload.map((row) => [
       row.receiverName,
       row.zipcode,
       row.baseAddress,
@@ -7093,24 +7140,29 @@ ${text}`;
     ]);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
-
     ws["!cols"] = [
       { wch: 12 }, { wch: 10 }, { wch: 42 }, { wch: 24 }, { wch: 16 },
       { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 45 },
     ];
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "택배접수");
-    XLSX.writeFile(wb, "택배접수.xlsx");
+    XLSX.writeFile(wb, filename);
+  }
 
-    const clearOk = window.confirm("엑셀 다운로드가 완료됐어요.\n\n택배접수 목록도 삭제할까요?");
-    if (clearOk) {
-      setShippingRows([]);
-      setShippingPasteText("");
-    }
+  function downloadShippingExcel() {
+    const effectiveRows = getEffectiveShippingRows();
+    if (effectiveRows.length === 0) return alert("다운로드할 택배접수 목록이 없어요.");
+    writeShippingExcel(effectiveRows, "택배접수_전체.xlsx");
+  }
+
+  function downloadSelectedShippingExcel() {
+    const selectedRows = getEffectiveShippingRows().filter((row) => row.selected);
+    if (selectedRows.length === 0) return alert("엑셀로 다운로드할 택배건을 체크해줘.");
+    writeShippingExcel(selectedRows, "택배접수_선택.xlsx");
   }
 
   function ShippingRegisterPage() {
+    const effectiveShippingRows = getEffectiveShippingRows();
     return (
       <>
         <section className="panel shippingRegisterPage">
@@ -7129,14 +7181,15 @@ ${text}`;
 
           <div className="buttonRow">
             <button type="button" onClick={convertShippingPaste}>자동 변환</button>
-            <button type="button" onClick={downloadShippingExcel}>엑셀 다운로드</button>
+            <button type="button" onClick={downloadShippingExcel}>전체 엑셀 다운로드</button>
+            <button type="button" onClick={downloadSelectedShippingExcel}>선택 엑셀 다운로드</button>
             <button type="button" onClick={toggleAllLiveShippingRows}>라방 주문 전체선택</button>
             <button type="button" onClick={confirmSelectedLiveShippingRows}>선택 주문 전체 출고확정</button>
             <button type="button" onClick={deleteSelectedShippingRows}>선택 삭제</button>
             <button type="button" className="deleteBtn" onClick={clearShippingRows}>전체 삭제</button>
           </div>
 
-          <p className="statusLine">변환된 택배접수 건수: {shippingRows.length.toLocaleString()}건</p>
+          <p className="statusLine">변환된 택배접수 건수: {effectiveShippingRows.length.toLocaleString()}건</p>
         </section>
 
         <section className="panel shippingTablePanel">
@@ -7160,7 +7213,7 @@ ${text}`;
                 </tr>
               </thead>
               <tbody>
-                {shippingRows.map((row) => (
+                {effectiveShippingRows.map((row) => (
                   <tr key={row.id}>
                     <td><input type="checkbox" checked={row.selected} onChange={() => toggleShippingRow(row.id)} /></td>
                     <td><input value={row.receiverName} onChange={(e) => updateShippingRow(row.id, "receiverName", e.target.value)} /></td>
@@ -7194,7 +7247,7 @@ ${text}`;
                     <td>{row.sourceOrderId ? <button type="button" onClick={() => confirmLiveShippingRow(row)}>출고확정</button> : "-"}</td>
                   </tr>
                 ))}
-                {shippingRows.length === 0 && (
+                {effectiveShippingRows.length === 0 && (
                   <tr><td colSpan="12" className="empty">붙여넣기 후 자동 변환을 누르면 목록이 표시됩니다.</td></tr>
                 )}
               </tbody>
