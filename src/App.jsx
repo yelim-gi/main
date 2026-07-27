@@ -4453,12 +4453,17 @@ ${text}`;
   useEffect(() => {
     // 라방 자동 택배접수 목록은 현재 주문 상태를 기준으로 매번 새로 만든다.
     // 정확히 "출고준비"인 주문만 포함하므로, 예전에 생성된 행이나 다른 상태 주문이 남지 않는다.
-    const ready = liveOrders.filter((o) => !o.canceledAt && String(o.status || "").trim() === "출고준비");
+    const confirmedIds = readConfirmedLiveShippingIds();
+    const ready = liveOrders.filter((o) =>
+      !o.canceledAt &&
+      String(o.status || "").trim() === "출고준비" &&
+      !confirmedIds.has(String(o.id))
+    );
 
     setShippingRows((prev) => {
-      const manualRows = prev.filter((row) => !row.sourceOrderId && !(row.sourceOrderIds || []).length);
+      const manualRows = prev.filter(isExplicitManualShippingRow);
       if (hideLiveShippingRows) return manualRows;
-      const previousAutoRows = prev.filter((row) => row.sourceOrderId || (row.sourceOrderIds || []).length);
+      const previousAutoRows = prev.filter((row) => String(row?.sourceType || "") === "live_order");
 
       // 합배송 주문은 같은 bundleId끼리 한 행으로 만들고, 일반 주문은 주문별 한 행으로 만든다.
       const groups = new Map();
@@ -4489,6 +4494,7 @@ ${text}`;
     const targets = liveOrders.filter((o) => ids.includes(String(o.id)) && !o.canceledAt && String(o.status || "") === "출고준비");
     if (!targets.length) return alert("연결된 라방 주문을 찾을 수 없어요.");
     if (!window.confirm(`${row.receiverName || targets[0].buyer} 합배송 ${targets.length}건을 출고완료로 바꿀까요?`)) return;
+    rememberConfirmedLiveShippingIds(ids);
     for (const order of targets) await updateLiveOrder(order.id, { status: "출고완료", keepStartedAt: "", keepExpiryDate: "", keepDays: "", bundleId: "" });
     setShippingRows((prev) => prev.filter((x) => String(x.id) !== String(row.id)));
   }
@@ -5435,6 +5441,7 @@ ${text}`;
       setLiveOrderDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
       setMemberOrderStatusDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
       if (hasStatusPatch && String(patch.status || "") === "출고준비") {
+        forgetConfirmedLiveShippingId(orderId);
         addLiveOrderToShippingQueue(next);
       } else if (hasStatusPatch) {
         // 출고준비가 아닌 상태로 바뀌면 기존 자동 택배접수 행에서도 제거한다.
@@ -6514,6 +6521,49 @@ ${text}`;
     );
   }
 
+  function addMemberToShippingRegister(member) {
+    if (!member) return;
+
+    const memberRow = {
+      id: `member-${member.id || Date.now()}-${Date.now()}`,
+      selected: false,
+      receiverName: String(member.name || "").trim(),
+      zipcode: normalizeZip(member.postalCode || member.zipcode || ""),
+      baseAddress: String(member.baseAddress || member.address || "").trim(),
+      detailAddress: String(member.detailAddress || "").trim(),
+      receiverPhone: normalizePhone(member.phone || ""),
+      boxWeight: "2",
+      boxVolume: "60",
+      boxCount: "1",
+      content: "생활용품",
+      deliveryMessage: "",
+      sourceType: "member",
+      sourceMemberId: member.id || null,
+    };
+
+    if (!memberRow.receiverName && !memberRow.receiverPhone && !memberRow.baseAddress) {
+      return alert("택배접수에 추가할 회원 정보가 없어요.");
+    }
+
+    const currentRows = getEffectiveShippingRows();
+    if (currentRows.length > 0) {
+      const replaceCurrentList = window.confirm(
+        "현재 접수목록을 비우고 추가하시겠어요?\n\n예: 기존 접수목록을 비우고 해당 회원만 추가\n아니오: 기존 접수목록에 해당 회원 추가"
+      );
+
+      if (replaceCurrentList) {
+        setHideLiveShippingRows(true);
+        setShippingRows([memberRow]);
+      } else {
+        setShippingRows((prev) => [...prev, memberRow]);
+      }
+    } else {
+      setShippingRows((prev) => [...prev, memberRow]);
+    }
+
+    setActiveTab("택배접수");
+  }
+
   function MemberInfoPage() {
     const statusOptions = ["미입금", "입금확인", "입금후킵", "정산후킵", "입금후합배송", "출고준비", "송장입력", "출고완료"];
     return (
@@ -6523,7 +6573,7 @@ ${text}`;
           <p className="statusLine">회원 수정/삭제, 라방 전체 주문내역, 합배송/킵 상태 변경, 선택 정산서 출력을 관리하는 탭이에요.</p>
           <div className="filterRow"><label>회원검색</label><input value={memberInfoSearch} onChange={(e) => setMemberInfoSearch(e.target.value)} placeholder="이름/전화번호/뒷4자리" />{memberInfoFilteredMembers.length > 0 && <select value={selectedMemberInfo?.id || ""} onChange={(e) => { const m = liveMembers.find((x) => String(x.id) === e.target.value); if (m) loadMemberInfoToForm(m); }}><option value="">회원 선택</option>{memberInfoFilteredMembers.map((m) => <option key={m.id} value={m.id}>{m.name} / {phoneLast4(m.phone)} / {toInt(m.points).toLocaleString()}P</option>)}</select>}</div>
           <div className="tableWrap memberListTable"><table><thead><tr><th>고객명</th><th>전화번호</th><th>주소</th><th>킵상태</th><th>메모</th><th>관리</th></tr></thead><tbody>
-            {memberInfoFilteredMembers.map((m) => { const keepRows = sameLiveKeepOrders({ buyer: m.name, phone: m.phone }); return <tr key={m.id} className={selectedMemberInfo?.id === m.id ? "selectedRow" : ""} onClick={() => loadMemberInfoToForm(m)}><td>{m.name}</td><td>{m.phone}</td><td title={m.address}>{m.address || "-"}</td><td>{keepRows.length ? keepRows.map((o) => <div key={o.id} className="keepMiniText">{liveOrderKeepRangeText(o) || liveOrderKeepDday(o)}</div>) : "-"}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={(e) => { e.stopPropagation(); loadMemberInfoToForm(m); }}>선택</button><button className="deleteBtn" type="button" onClick={(e) => { e.stopPropagation(); deleteLiveMember(m); }}>삭제</button></td></tr>; })}
+            {memberInfoFilteredMembers.map((m) => { const keepRows = sameLiveKeepOrders({ buyer: m.name, phone: m.phone }); return <tr key={m.id} className={selectedMemberInfo?.id === m.id ? "selectedRow" : ""} onClick={() => loadMemberInfoToForm(m)}><td>{m.name}</td><td>{m.phone}</td><td title={m.address}>{m.address || "-"}</td><td>{keepRows.length ? keepRows.map((o) => <div key={o.id} className="keepMiniText">{liveOrderKeepRangeText(o) || liveOrderKeepDday(o)}</div>) : "-"}</td><td title={m.memo}>{m.memo || "-"}</td><td><button type="button" onClick={(e) => { e.stopPropagation(); loadMemberInfoToForm(m); }}>선택</button><button type="button" onClick={(e) => { e.stopPropagation(); addMemberToShippingRegister(m); }}>택배접수</button><button className="deleteBtn" type="button" onClick={(e) => { e.stopPropagation(); deleteLiveMember(m); }}>삭제</button></td></tr>; })}
             {memberInfoFilteredMembers.length === 0 && <tr><td colSpan="6" className="empty">저장된 회원이 없어요.</td></tr>}
           </tbody></table></div>
           <div className="filterRow"><label>고객명</label><input value={liveMemberForm.name} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, name: e.target.value })} /><label>전화번호</label><input value={liveMemberForm.phone} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, phone: e.target.value })} /><label>보유P</label><input value={liveMemberForm.points} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, points: e.target.value })} /><label>기본적립%</label><input className="tinyInput" value={liveMemberForm.pointRate} onChange={(e) => setLiveMemberForm({ ...liveMemberForm, pointRate: e.target.value })} /></div>
@@ -7007,6 +7057,7 @@ ${text}`;
       return {
         id: Date.now() + index,
         selected: false,
+        sourceType: "manual",
         receiverName: clean[0] || "",
         zipcode: normalizeZip(clean[9] || ""),
         baseAddress: clean[6] || "",
@@ -7098,11 +7149,42 @@ ${text}`;
   }
 
 
+  function isExplicitManualShippingRow(row) {
+    return ["manual", "member"].includes(String(row?.sourceType || ""));
+  }
+
+  function readConfirmedLiveShippingIds() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("confirmedLiveShippingOrderIds") || "[]").map(String));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function rememberConfirmedLiveShippingIds(ids = []) {
+    const confirmed = readConfirmedLiveShippingIds();
+    ids.filter(Boolean).forEach((id) => confirmed.add(String(id)));
+    localStorage.setItem("confirmedLiveShippingOrderIds", JSON.stringify([...confirmed]));
+  }
+
+  function forgetConfirmedLiveShippingId(id) {
+    const confirmed = readConfirmedLiveShippingIds();
+    confirmed.delete(String(id));
+    localStorage.setItem("confirmedLiveShippingOrderIds", JSON.stringify([...confirmed]));
+  }
+
   function getEffectiveShippingRows() {
-    const manualRows = shippingRows.filter((row) => !row.sourceOrderId && !(row.sourceOrderIds || []).length);
+    // 수동입력/회원정보에서 명시적으로 추가한 행만 수동 행으로 인정한다.
+    // 구버전에서 출처 정보 없이 남은 라방 자동행은 여기서 버려서 다시 나타나지 않게 한다.
+    const manualRows = shippingRows.filter(isExplicitManualShippingRow);
     if (hideLiveShippingRows) return manualRows;
-    const previousAutoRows = shippingRows.filter((row) => row.sourceOrderId || (row.sourceOrderIds || []).length);
-    const readyOrders = liveOrders.filter((order) => !order.canceledAt && String(order.status || "").trim() === "출고준비");
+    const previousAutoRows = shippingRows.filter((row) => String(row?.sourceType || "") === "live_order");
+    const confirmedIds = readConfirmedLiveShippingIds();
+    const readyOrders = liveOrders.filter((order) =>
+      !order.canceledAt &&
+      String(order.status || "").trim() === "출고준비" &&
+      !confirmedIds.has(String(order.id))
+    );
 
     const groups = new Map();
     readyOrders.forEach((order) => {
