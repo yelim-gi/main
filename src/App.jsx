@@ -7011,6 +7011,37 @@ ${text}`;
     setShippingRows((prev) => prev.map((row) => row.id === id ? { ...row, selected: !row.selected } : row));
   }
 
+  function toggleAllLiveShippingRows() {
+    const liveRows = shippingRows.filter((row) => row.sourceOrderId);
+    if (liveRows.length === 0) return alert("전체선택할 라방 주문 택배건이 없어요.");
+    const allSelected = liveRows.every((row) => row.selected);
+    setShippingRows((prev) => prev.map((row) => row.sourceOrderId ? { ...row, selected: !allSelected } : row));
+  }
+
+  async function confirmSelectedLiveShippingRows() {
+    const selectedRows = shippingRows.filter((row) => row.selected && row.sourceOrderId);
+    if (selectedRows.length === 0) return alert("출고확정할 라방 주문을 체크해줘.");
+
+    const selectedIds = new Set();
+    selectedRows.forEach((row) => {
+      (row.sourceOrderIds || [row.sourceOrderId]).filter(Boolean).forEach((id) => selectedIds.add(String(id)));
+    });
+    const targets = liveOrders.filter((order) => selectedIds.has(String(order.id)) && !order.canceledAt && String(order.status || "") !== "출고완료");
+    if (targets.length === 0) return alert("출고확정할 주문을 찾을 수 없어요.");
+    if (!window.confirm(`선택한 택배 ${selectedRows.length}건에 연결된 주문 ${targets.length}건을 모두 출고완료로 바꿀까요?`)) return;
+
+    try {
+      for (const order of targets) {
+        await updateLiveOrder(order.id, { status: "출고완료", keepStartedAt: "", keepExpiryDate: "", keepDays: "", bundleId: "" });
+      }
+      const completedRowIds = new Set(selectedRows.map((row) => String(row.id)));
+      setShippingRows((prev) => prev.filter((row) => !completedRowIds.has(String(row.id))));
+      alert(`택배 ${selectedRows.length}건, 주문 ${targets.length}건을 출고확정했어요.`);
+    } catch (error) {
+      alert("전체 출고확정 중 오류가 발생했어요: " + (error.message || String(error)));
+    }
+  }
+
   function deleteSelectedShippingRows() {
     const count = shippingRows.filter((x) => x.selected).length;
     if (count === 0) return alert("삭제할 행을 체크해줘.");
@@ -7078,6 +7109,8 @@ ${text}`;
           <div className="buttonRow">
             <button type="button" onClick={convertShippingPaste}>자동 변환</button>
             <button type="button" onClick={downloadShippingExcel}>엑셀 다운로드</button>
+            <button type="button" onClick={toggleAllLiveShippingRows}>라방 주문 전체선택</button>
+            <button type="button" onClick={confirmSelectedLiveShippingRows}>선택 주문 전체 출고확정</button>
             <button type="button" onClick={deleteSelectedShippingRows}>선택 삭제</button>
             <button type="button" className="deleteBtn" onClick={clearShippingRows}>전체 삭제</button>
           </div>
