@@ -749,14 +749,18 @@ export default function App() {
 
   async function getOrders() {
     const { data, error } = await supabase.from("orders").select("*").order("id", { ascending: false });
-    if (error) return console.log(error);
-    setOrders(data || []);
+    if (error) { console.log(error); return []; }
+    const rows = data || [];
+    setOrders(rows);
+    return rows;
   }
 
   async function getOrderItems() {
     const { data, error } = await supabase.from("order_items").select("*").order("id", { ascending: true });
-    if (error) return console.log(error);
-    setOrderItems(data || []);
+    if (error) { console.log(error); return []; }
+    const rows = data || [];
+    setOrderItems(rows);
+    return rows;
   }
 
   async function getMaterials() {
@@ -1173,7 +1177,12 @@ export default function App() {
       order_id: order.id, product_id: p.id, name: p.name, qty: 1,
       wholesale: toInt(p.wholesale), retail: toInt(p.retail),
     }));
-    const { error: itemErr } = await supabase.from("order_items").insert(payload);
+
+    // 박스출고 직후 상품목록이 비어 보이지 않도록, 저장된 order_items를 즉시 돌려받는다.
+    const { data: insertedItems, error: itemErr } = await supabase
+      .from("order_items")
+      .insert(payload)
+      .select("*");
     if (itemErr) {
       await restoreStockFromItems(items);
       if (order?.id) await supabase.from("orders").delete().eq("id", order.id);
@@ -1181,13 +1190,52 @@ export default function App() {
       return alert("주문 상품 저장 실패로 주문을 취소하고 임시차감 재고를 다시 복구했어요.\n" + itemErr.message);
     }
 
+    // DB에 이 주문의 상품이 실제로 모두 들어갔는지 다시 확인한다.
+    const { data: verifiedItems, error: verifyErr } = await supabase
+      .from("order_items")
+      .select("*")
+      .eq("order_id", order.id)
+      .order("id", { ascending: true });
+
+    if (verifyErr || !verifiedItems || verifiedItems.length !== payload.length) {
+      // 불완전한 주문은 남겨두지 않는다. order_items → order 삭제 후 재고 복구.
+      await supabase.from("order_items").delete().eq("order_id", order.id);
+      await supabase.from("orders").delete().eq("id", order.id);
+      await restoreStockFromItems(items);
+      setIsShipping(false);
+      return alert(
+        `주문 상품 저장 확인에 실패했어요.\n` +
+        `담은 상품 ${payload.length}개 / DB 확인 ${verifiedItems?.length || 0}개\n\n` +
+        `불완전한 주문은 삭제했고 임시차감 재고도 다시 복구했어요.${verifyErr ? "\n" + verifyErr.message : ""}`
+      );
+    }
+
+    // 실시간 구독/전체 재조회보다 먼저 방금 저장한 상품을 화면 상태에 직접 반영한다.
+    setOrderItems((prev) => [
+      ...(prev || []).filter((x) => String(x.order_id) !== String(order.id)),
+      ...verifiedItems,
+    ]);
+    setOrders((prev) => [
+      order,
+      ...(prev || []).filter((x) => String(x.id) !== String(order.id)),
+    ]);
+    setSelectedOrderId(order.id);
+
     await writeAudit("order_create", `order_id=${order.id} / customer=${orderCustomer} / items=${items.length}`);
-    setIsShipping(false);
-    alert(`주문 등록 완료! 주문ID: ${order.id}\n재고는 주문접수 상태에서 임시차감됐어요.\n취소하면 재고가 복구되고, 출고확정은 상태만 출고완료로 바뀝니다.`);
-    getProducts();
-    getOrders();
-    getOrderItems();
+
+    // 전체 목록도 반드시 갱신을 끝낸 뒤 주문관리 화면으로 이동한다.
+    await Promise.all([getProducts(), getOrders(), getOrderItems()]);
+    setSelectedOrderId(order.id);
     setActiveTab("주문관리");
+    setIsShipping(false);
+
+    alert(
+      `주문 등록 완료! 주문ID: ${order.id}\n` +
+      `주문상품 ${verifiedItems.length}개 저장 확인 완료.\n` +
+      `방금 만든 주문을 자동 선택했어요.\n` +
+      `재고는 주문접수 상태에서 임시차감됐어요.\n` +
+      `취소하면 재고가 복구되고, 출고확정은 상태만 출고완료로 바뀝니다.`
+    );
     return true;
   }
 
