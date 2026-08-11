@@ -6046,64 +6046,55 @@ ${text}`;
     if (!selectedLiveSession) return alert("종료할 라방을 선택해줘.");
     const liveProducts = selectedLiveSession.products || [];
 
-    // 미입금 주문도 이미 고객이 선점한 수량으로 본다.
-    // 라방 종료 시 주문건에 담긴 수량은 본재고로 원복하지 않고,
-    // 어떤 주문에도 담기지 않은 라방 미판매 수량만 재고관리로 돌린다.
-    const orderedQtyByLiveItem = {};
-    liveOrders
-      .filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt)
-      .forEach((o) => {
-        (o.items || []).forEach((it) => {
-          const key = String(it.liveItemId || "");
-          if (!key) return;
-          orderedQtyByLiveItem[key] = (orderedQtyByLiveItem[key] || 0) + toInt(it.qty);
-        });
-      });
-
+    // 원복 기준은 주문서를 다시 계산하지 않고, 라방 상품표에 현재 표시된 `남음(remainingQty)` 자체를 사용한다.
+    // 예: 본재고 5 -> 라방 3개 배정 후 본재고 2 -> 라방 남음 2라면 종료 시 2 + 2 = 본재고 4.
+    // 이미 한 번 원복한 상품은 아래에서 remainingQty를 0으로 만들기 때문에 버튼을 다시 눌러도 중복 원복되지 않는다.
     const restoreItems = liveProducts
-      .map((li) => {
-        const liveQty = toInt(li.liveQty || li.qty || li.quantity);
-        const orderedQty = toInt(orderedQtyByLiveItem[String(li.id)] || 0);
-        const alreadyRestoredQty = toInt(li.restoredQty);
-        const calculatedUnsoldQty = Math.max(0, liveQty - orderedQty - alreadyRestoredQty);
-        const remainingQty = toInt(li.remainingQty);
-        const restoreQty = Math.max(0, Math.min(remainingQty || calculatedUnsoldQty, calculatedUnsoldQty));
-        return { ...li, restoreQty, orderedQty };
-      })
+      .map((li) => ({ ...li, restoreQty: Math.max(0, toInt(li.remainingQty)) }))
       .filter((li) => toInt(li.restoreQty) > 0);
 
     const totalQty = restoreItems.reduce((sum, li) => sum + toInt(li.restoreQty), 0);
-    if (totalQty <= 0) return alert("정리할 미판매 라방수량이 없어요. 주문에 담긴 수량(미입금 포함)은 선점 수량으로 유지됩니다.");
+    if (totalQty <= 0) return alert("현재 라방 상품의 '남음' 수량이 모두 0개라 원복할 재고가 없어요.");
 
+    const missingProduct = restoreItems.find((li) => !li.productId);
+    if (missingProduct) {
+      return alert(`원복할 수 없는 상품이 있어요: ${missingProduct.name || "이름 없음"}\n원본 재고 상품 연결(productId)이 없습니다.`);
+    }
+
+    // 같은 원본 상품이 라방 목록에 여러 줄로 존재할 수도 있으므로 productId별로 합쳐서 더한다.
     const restoreByProduct = {};
-    let alreadyInMainStockQty = 0;
     restoreItems.forEach((li) => {
-      const restoreQty = toInt(li.restoreQty);
-      if (String(li.stockMode || "reserved_deducted") === "no_deduct") {
-        alreadyInMainStockQty += restoreQty;
-        return;
-      }
-      if (restoreQty > 0 && li.productId) restoreByProduct[String(li.productId)] = (restoreByProduct[String(li.productId)] || 0) + restoreQty;
+      const key = String(li.productId);
+      restoreByProduct[key] = (restoreByProduct[key] || 0) + toInt(li.restoreQty);
     });
-    const actualRestoreQty = Object.values(restoreByProduct).reduce((sum, qty) => sum + toInt(qty), 0);
 
-    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료할까요?\n\n본재고로 실제 원복: ${actualRestoreQty}개${alreadyInMainStockQty ? `\n이미 본재고에 포함된 구버전 수량: ${alreadyInMainStockQty}개` : ""}\n\n미입금 주문도 선점된 주문으로 보고 원복하지 않습니다.`);
+    const previewLines = restoreItems
+      .slice(0, 8)
+      .map((li) => `• ${li.name || "상품"}: +${toInt(li.restoreQty)}개`)
+      .join("\n");
+    const moreText = restoreItems.length > 8 ? `\n외 ${restoreItems.length - 8}개 상품` : "";
+    const ok = window.confirm(
+      `${selectedLiveSession.title || "선택한 라방"}을 종료하고 미판매 재고를 원복할까요?\n\n` +
+      `원복 기준: 라방 상품표의 '남음' 수량\n총 원복수량: ${totalQty.toLocaleString()}개\n\n` +
+      `${previewLines}${moreText}\n\n` +
+      `각 상품의 현재 재고에 위 수량을 그대로 더합니다.`
+    );
     if (!ok) return;
 
     try {
-      await adjustProductStockMany(restoreByProduct);
+      const changedStocks = await adjustProductStockMany(restoreByProduct);
       const restoreQtyByLiveItem = {};
       restoreItems.forEach((li) => { restoreQtyByLiveItem[String(li.id)] = toInt(li.restoreQty); });
 
       const nextProducts = liveProducts.map((li) => {
         const restoreQty = toInt(restoreQtyByLiveItem[String(li.id)] || 0);
         if (restoreQty <= 0) return li;
-        const nextRemaining = Math.max(0, toInt(li.remainingQty) - restoreQty);
         return {
           ...li,
-          remainingQty: String(nextRemaining),
+          remainingQty: "0",
           restoredQty: toInt(li.restoredQty) + restoreQty,
           restoredAt: nowString(),
+          stockMode: "reserved_deducted",
         };
       });
 
@@ -6117,8 +6108,23 @@ ${text}`;
       await saveLiveSessionDb(nextSession);
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
       await Promise.all([getProducts(), getLiveSessions()]);
-      await writeAudit("live_session_close_restore_unsold", `${selectedLiveSession.title || selectedLiveSession.id} / qty=${totalQty} / unpaid_orders_reserved=true`);
-      alert(`라방 종료 완료! 본재고에 실제 원복된 수량은 ${actualRestoreQty}개예요.${alreadyInMainStockQty ? `\n구버전 방식 ${alreadyInMainStockQty}개는 이미 본재고에 포함된 상태라 중복으로 더하지 않았어요.` : ""}\n미입금 주문 수량은 선점 수량으로 유지돼요.`);
+      await writeAudit(
+        "live_session_close_restore_remaining",
+        `${selectedLiveSession.title || selectedLiveSession.id} / remaining_qty_restored=${totalQty}`
+      );
+
+      const changedPreview = (changedStocks || [])
+        .slice(0, 8)
+        .map((x) => {
+          const li = restoreItems.find((it) => String(it.productId) === String(x.productId));
+          return `• ${li?.name || "상품"}: ${toInt(x.before)} → ${toInt(x.after)}개 (+${toInt(x.delta)})`;
+        })
+        .join("\n");
+      alert(
+        `라방 종료 / 재고 원복 완료!\n\n` +
+        `라방 상품표의 '남음' 총 ${totalQty.toLocaleString()}개를 현재 재고에 더했어요.` +
+        (changedPreview ? `\n\n${changedPreview}` : "")
+      );
     } catch (error) {
       alert("미판매 재고 원복 실패: " + String(error?.message || error));
       await Promise.all([getProducts(), getLiveSessions()]);
@@ -6394,7 +6400,7 @@ ${text}`;
           </div>
           <div className="panel liveProductPanel">
             <h2>2. 라방 상품 등록</h2>
-            <p className="statusLine">라방추가/주문저장만으로는 본재고가 줄지 않아요. 주문 상태를 입금확인/송장입력/출고완료 등으로 저장할 때만 본재고가 차감돼요.</p>
+            <p className="statusLine">라방에 배정한 수량은 본재고에서 빠지고, 라방 종료 시 상품표의 ‘남음’ 수량만 현재 본재고에 다시 더해집니다.</p>
             <div className="filterRow"><label>상품검색</label><LiveProductSearchBar value={liveProductSearch} onSearch={setLiveProductSearch} /><button type="button" className="liveOpenBigProductBtn" onClick={() => setLiveProductModalOpen(true)}>상품추가 크게보기</button></div>
             <div className="tableWrap liveProductSourceTable compactRows"><table><thead><tr><th>상품명</th><th>캐릭터1</th><th>캐릭터2</th><th>본재고</th><th>도매가</th><th>소비자가</th><th>추가</th></tr></thead><tbody>
               {liveFilteredProducts.map((p) => { const liveAdded = isProductAddedToCurrentLive(p.id); const addedInfo = liveAddedProductMap.get(String(p.id)); return <tr key={p.id} className={liveAdded ? "liveAlreadyAddedRow" : ""}><td title={p.name}>{p.name}{liveAdded && <span className="liveAddedBadge">추가됨 {toInt(addedInfo?.remaining).toLocaleString()}개</span>}</td><td title={p.char1 || ""}>{p.char1 || "-"}</td><td title={p.char2 || ""}>{p.char2 || "-"}</td><td>{p.stock}</td><td>{money(p.wholesale)}</td><td>{money(p.retail)}</td><td className="liveActionCell"><button className="liveAddBtn" type="button" onClick={() => addProductToLive(p)}>라방추가</button></td></tr>; })}
