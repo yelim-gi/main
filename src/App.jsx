@@ -404,7 +404,6 @@ export default function App() {
   const [financeMonth, setFinanceMonth] = useState("전체");
   const [shippingPasteText, setShippingPasteText] = useState("");
   const [shippingRows, setShippingRows] = useState([]);
-  const [hideLiveShippingRows, setHideLiveShippingRows] = useState(false);
   const [v48ManualStrictCharsOnly, setV48ManualStrictCharsOnly] = useState(false);
   const [v48ScoopStrictCharsOnly, setV48ScoopStrictCharsOnly] = useState(false);
 
@@ -3820,9 +3819,17 @@ ${text}`;
 
   async function adjustProductStockByProductId(productId, delta) {
     if (!productId || !delta) return null;
-    const latest = products.find((p) => String(p.id) === String(productId));
+    // React 화면의 products 값은 연속 클릭/저장 직후에는 늦게 갱신될 수 있다.
+    // 반드시 DB의 최신 재고를 다시 읽은 뒤 증감해서 실제 재고 누락을 막는다.
+    const { data: latest, error: readError } = await supabase
+      .from("products")
+      .select("id,name,stock")
+      .eq("id", productId)
+      .single();
+    if (readError) throw readError;
     const currentStock = toInt(latest?.stock);
-    const nextStock = Math.max(0, currentStock + toInt(delta));
+    const nextStock = currentStock + toInt(delta);
+    if (nextStock < 0) throw new Error(`${latest?.name || "상품"} 본재고가 부족해요. 현재 ${currentStock}개 / 필요 ${Math.abs(toInt(delta))}개`);
     const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", productId);
     if (error) throw error;
     await getProducts();
@@ -3831,15 +3838,24 @@ ${text}`;
 
   async function adjustProductStockMany(qtyByProduct = {}) {
     const entries = Object.entries(qtyByProduct).filter(([, qty]) => toInt(qty) !== 0);
-    if (entries.length === 0) return;
+    if (entries.length === 0) return [];
+    const changed = [];
     for (const [productId, delta] of entries) {
-      const latest = products.find((p) => String(p.id) === String(productId));
+      const { data: latest, error: readError } = await supabase
+        .from("products")
+        .select("id,name,stock")
+        .eq("id", productId)
+        .single();
+      if (readError) throw readError;
       const currentStock = toInt(latest?.stock);
-      const nextStock = Math.max(0, currentStock + toInt(delta));
+      const nextStock = currentStock + toInt(delta);
+      if (nextStock < 0) throw new Error(`${latest?.name || "상품"} 본재고가 부족해요. 현재 ${currentStock}개 / 필요 ${Math.abs(toInt(delta))}개`);
       const { error } = await supabase.from("products").update({ stock: nextStock }).eq("id", productId);
       if (error) throw error;
+      changed.push({ productId: String(productId), before: currentStock, after: nextStock, delta: toInt(delta) });
     }
     await getProducts();
+    return changed;
   }
 
   function explainLiveTableMissing(error) {
@@ -4445,48 +4461,13 @@ ${text}`;
     if (!targets.length) return;
     targets.forEach((o) => {
       updateLiveOrder(o.id, { status: "출고준비" });
-      addLiveOrderToShippingQueue({ ...o, status: "출고준비" });
     });
     localStorage.setItem(flagKey, JSON.stringify([...done, ...targets.map((o) => String(o.id))]));
   }, [liveOrders, selectedLiveSessionId]);
 
-  useEffect(() => {
-    // 라방 자동 택배접수 목록은 현재 주문 상태를 기준으로 매번 새로 만든다.
-    // 정확히 "출고준비"인 주문만 포함하므로, 예전에 생성된 행이나 다른 상태 주문이 남지 않는다.
-    const confirmedIds = readConfirmedLiveShippingIds();
-    const ready = liveOrders.filter((o) =>
-      !o.canceledAt &&
-      String(o.status || "").trim() === "출고준비" &&
-      !confirmedIds.has(String(o.id))
-    );
+  // 택배접수 목록은 의도적으로 화면 메모리에만 둔다.
+  // 출고준비 상태라고 자동 생성하지 않으며, 주문관리의 버튼을 눌렀을 때만 추가된다.
 
-    setShippingRows((prev) => {
-      const manualRows = prev.filter(isExplicitManualShippingRow);
-      if (hideLiveShippingRows) return manualRows;
-      const previousAutoRows = prev.filter((row) => String(row?.sourceType || "") === "live_order");
-
-      // 합배송 주문은 같은 bundleId끼리 한 행으로 만들고, 일반 주문은 주문별 한 행으로 만든다.
-      const groups = new Map();
-      ready.forEach((order) => {
-        const key = order.bundleId ? `bundle:${order.bundleId}` : `order:${order.id}`;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(order);
-      });
-
-      const autoRows = Array.from(groups.values()).map((orders) => {
-        const row = buildShippingRowFromLiveOrders(orders);
-        if (!row) return null;
-        const linkedIds = new Set((row.sourceOrderIds || [row.sourceOrderId]).map(String));
-        const oldRow = previousAutoRows.find((candidate) => {
-          const oldIds = (candidate.sourceOrderIds || (candidate.sourceOrderId ? [candidate.sourceOrderId] : [])).map(String);
-          return oldIds.length === linkedIds.size && oldIds.every((id) => linkedIds.has(id));
-        });
-        return oldRow ? { ...row, selected: !!oldRow.selected } : row;
-      }).filter(Boolean);
-
-      return [...autoRows, ...manualRows];
-    });
-  }, [liveOrders, hideLiveShippingRows]);
 
   async function confirmLiveShippingRow(row) {
     const ids = (row?.sourceOrderIds || (row?.sourceOrderId ? [row.sourceOrderId] : [])).map(String);
@@ -4523,9 +4504,7 @@ ${text}`;
       updated.push(next);
     }
     setLiveOrders((prev) => prev.map((o) => updated.find((x) => String(x.id) === String(o.id)) || o));
-    addLiveOrdersToShippingQueue(updated);
-    setActiveTab("택배접수");
-    alert("합배송 처리 후 택배접수 목록에 추가했어요. 택배접수 탭에서 출고확정을 누르면 묶인 주문이 모두 출고완료로 바뀝니다.");
+    alert("합배송 주문을 출고준비 상태로 바꿨어요. 주문관리의 [출고준비 주문 → 택배접수 목록 이동] 버튼을 눌러 택배접수에 추가해줘.");
   }
 
   function getBundleOrders(order) {
@@ -5440,16 +5419,8 @@ ${text}`;
       setLiveOrders((prev) => prev.map((o) => String(o.id) === String(orderId) ? next : o));
       setLiveOrderDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
       setMemberOrderStatusDrafts((prev) => { const draftNext = { ...prev }; delete draftNext[orderId]; return draftNext; });
-      if (hasStatusPatch && String(patch.status || "") === "출고준비") {
-        forgetConfirmedLiveShippingId(orderId);
-        addLiveOrderToShippingQueue(next);
-      } else if (hasStatusPatch) {
-        // 출고준비가 아닌 상태로 바뀌면 기존 자동 택배접수 행에서도 제거한다.
-        setShippingRows((prev) => prev.filter((row) => {
-          const linkedIds = (row.sourceOrderIds || (row.sourceOrderId ? [row.sourceOrderId] : [])).map(String);
-          return !linkedIds.includes(String(orderId));
-        }));
-      }
+      // 상태 변경만으로는 택배접수 목록을 건드리지 않는다.
+      // "출고준비 주문 → 택배접수 목록 이동" 버튼을 눌렀을 때만 임시 목록에 복사된다.
       return next;
     } catch (error) {
       alert("주문 수정 실패: " + (error.message || String(error)) + "\n\nSupabase SQL에서 live_orders.status / keep_started_at / keep_expiry_date / keep_days 컬럼이 있는지 확인해줘.");
@@ -6104,15 +6075,20 @@ ${text}`;
     const totalQty = restoreItems.reduce((sum, li) => sum + toInt(li.restoreQty), 0);
     if (totalQty <= 0) return alert("정리할 미판매 라방수량이 없어요. 주문에 담긴 수량(미입금 포함)은 선점 수량으로 유지됩니다.");
 
-    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료하고 주문에 담기지 않은 미판매 라방수량 ${totalQty}개를 본재고로 원복할까요?\n\n미입금 주문도 선점된 주문으로 보고 재고 원복하지 않습니다. 주문건에 없는 라방상품 수량만 재고관리로 돌아갑니다.`);
-    if (!ok) return;
-
     const restoreByProduct = {};
+    let alreadyInMainStockQty = 0;
     restoreItems.forEach((li) => {
-      if (String(li.stockMode || "reserved_deducted") === "no_deduct") return;
       const restoreQty = toInt(li.restoreQty);
+      if (String(li.stockMode || "reserved_deducted") === "no_deduct") {
+        alreadyInMainStockQty += restoreQty;
+        return;
+      }
       if (restoreQty > 0 && li.productId) restoreByProduct[String(li.productId)] = (restoreByProduct[String(li.productId)] || 0) + restoreQty;
     });
+    const actualRestoreQty = Object.values(restoreByProduct).reduce((sum, qty) => sum + toInt(qty), 0);
+
+    const ok = window.confirm(`${selectedLiveSession.title || "선택한 라방"}을 종료할까요?\n\n본재고로 실제 원복: ${actualRestoreQty}개${alreadyInMainStockQty ? `\n이미 본재고에 포함된 구버전 수량: ${alreadyInMainStockQty}개` : ""}\n\n미입금 주문도 선점된 주문으로 보고 원복하지 않습니다.`);
+    if (!ok) return;
 
     try {
       await adjustProductStockMany(restoreByProduct);
@@ -6142,7 +6118,7 @@ ${text}`;
       setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s));
       await Promise.all([getProducts(), getLiveSessions()]);
       await writeAudit("live_session_close_restore_unsold", `${selectedLiveSession.title || selectedLiveSession.id} / qty=${totalQty} / unpaid_orders_reserved=true`);
-      alert(`라방을 종료하고 주문에 없는 미판매 수량 ${totalQty}개만 본재고로 원복했어요. 미입금 주문 수량은 선점 수량으로 유지돼요.`);
+      alert(`라방 종료 완료! 본재고에 실제 원복된 수량은 ${actualRestoreQty}개예요.${alreadyInMainStockQty ? `\n구버전 방식 ${alreadyInMainStockQty}개는 이미 본재고에 포함된 상태라 중복으로 더하지 않았어요.` : ""}\n미입금 주문 수량은 선점 수량으로 유지돼요.`);
     } catch (error) {
       alert("미판매 재고 원복 실패: " + String(error?.message || error));
       await Promise.all([getProducts(), getLiveSessions()]);
@@ -6507,7 +6483,8 @@ ${text}`;
             <div className="filterRow">
               <label>주문검색</label><input value={liveOrderSearch} onChange={(e) => setLiveOrderSearch(e.target.value)} placeholder="구매자/전화/상품명/송장/메모" />
               <label className="checkLine"><input type="checkbox" checked={liveDueOnly} onChange={(e) => setLiveDueOnly(e.target.checked)} />출고필요만 보기</label>
-              <span className="statusLine">상태 변경은 각 주문 행의 드롭다운에서 저장돼요.</span>
+              <span className="statusLine">상태 변경은 각 주문 행의 드롭다운에서 저장돼요. 출고준비 상태만 아래 버튼으로 택배접수에 직접 보냅니다.</span>
+              <button type="button" onClick={moveReadyLiveOrdersToShippingQueue}>출고준비 주문 → 택배접수 목록 이동</button>
               <button type="button" onClick={() => setSelectedLiveInvoiceIds(liveFilteredOrders.map((o) => String(o.id)))}>전체선택</button><button type="button" onClick={() => setSelectedLiveInvoiceIds([])}>선택해제</button><label>선택 상태</label><select value={liveBulkStatus} onChange={(e) => setLiveBulkStatus(e.target.value)}><option value="">상태 선택</option>{statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}</select><button type="button" onClick={() => bulkChangeSelectedLiveOrdersStatus()}>선택건 상태변경</button><button type="button" onClick={() => printSelectedLiveInvoices("selected")}>선택 PDF</button><button type="button" onClick={() => printSelectedLiveInvoices("all")}>전체 PDF</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("selected")}>선택 엑셀 ZIP</button><button type="button" onClick={() => downloadLiveInvoiceExcelZip("all")}>전체 엑셀 ZIP</button>
             </div>
             <div className="tableWrap liveOrdersTable"><table><thead><tr><th>선택</th><th>구매자</th><th>상품</th><th>라방일</th><th>금액</th><th>결제</th><th>상태</th><th>킵</th><th>송장</th><th>묶음</th><th>정산서</th><th>취소</th><th>삭제</th></tr></thead><tbody>
@@ -6552,7 +6529,6 @@ ${text}`;
       );
 
       if (replaceCurrentList) {
-        setHideLiveShippingRows(true);
         setShippingRows([memberRow]);
       } else {
         setShippingRows((prev) => [...prev, memberRow]);
@@ -7073,22 +7049,13 @@ ${text}`;
 
     if (converted.length === 0) return alert("변환할 수 있는 주문 데이터가 없어요. 복사한 데이터 순서를 확인해줘.");
 
-    const hasLiveShippingRows = getEffectiveShippingRows().some(
-      (row) => row.sourceOrderId || (row.sourceOrderIds || []).length
-    );
-
-    if (hasLiveShippingRows) {
+    const currentRows = getEffectiveShippingRows();
+    if (currentRows.length > 0) {
       const replaceCurrentList = window.confirm(
-        "현재 접수목록을 비우고 추가하시겠어요?\n\n예: 기존 라방 택배접수건을 숨기고 방금 입력한 건만 표시\n아니오: 기존 라방 택배접수건 아래에 방금 입력한 건 추가"
+        "현재 접수목록이 있어요. 방금 입력한 것만 새로 표시할까요?\n\n예: 현재 목록을 비우고 방금 입력한 건만 표시\n아니오: 현재 목록은 그대로 두고 방금 입력한 건을 추가"
       );
-
-      if (replaceCurrentList) {
-        setHideLiveShippingRows(true);
-        setShippingRows(converted);
-      } else {
-        setHideLiveShippingRows(false);
-        setShippingRows((prev) => [...prev, ...converted]);
-      }
+      if (replaceCurrentList) setShippingRows(converted);
+      else setShippingRows((prev) => [...prev, ...converted]);
     } else {
       setShippingRows(converted);
     }
@@ -7174,17 +7141,18 @@ ${text}`;
   }
 
   function getEffectiveShippingRows() {
-    // 수동입력/회원정보에서 명시적으로 추가한 행만 수동 행으로 인정한다.
-    // 구버전에서 출처 정보 없이 남은 라방 자동행은 여기서 버려서 다시 나타나지 않게 한다.
-    const manualRows = shippingRows.filter(isExplicitManualShippingRow);
-    if (hideLiveShippingRows) return manualRows;
-    const previousAutoRows = shippingRows.filter((row) => String(row?.sourceType || "") === "live_order");
-    const confirmedIds = readConfirmedLiveShippingIds();
+    // 새로고침/재접속 시 shippingRows 자체가 초기화되므로 과거 주문이 다시 나타나지 않는다.
+    return shippingRows;
+  }
+
+  function moveReadyLiveOrdersToShippingQueue() {
+    if (!selectedLiveSession) return alert("라방을 선택해줘.");
     const readyOrders = liveOrders.filter((order) =>
+      String(order.sessionId) === String(selectedLiveSession.id) &&
       !order.canceledAt &&
-      String(order.status || "").trim() === "출고준비" &&
-      !confirmedIds.has(String(order.id))
+      String(order.status || "").trim() === "출고준비"
     );
+    if (!readyOrders.length) return alert("현재 선택한 라방에 출고준비 상태 주문이 없어요.");
 
     const groups = new Map();
     readyOrders.forEach((order) => {
@@ -7192,20 +7160,24 @@ ${text}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(order);
     });
+    const rows = Array.from(groups.values()).map(buildShippingRowFromLiveOrders).filter(Boolean);
 
-    const autoRows = Array.from(groups.values()).map((orders) => {
-      const freshRow = buildShippingRowFromLiveOrders(orders);
-      if (!freshRow) return null;
-      const freshIds = new Set((freshRow.sourceOrderIds || [freshRow.sourceOrderId]).filter(Boolean).map(String));
-      const oldRow = previousAutoRows.find((candidate) => {
-        const oldIds = (candidate.sourceOrderIds || (candidate.sourceOrderId ? [candidate.sourceOrderId] : [])).filter(Boolean).map(String);
-        return oldIds.length === freshIds.size && oldIds.every((id) => freshIds.has(id));
+    let added = 0;
+    setShippingRows((prev) => {
+      const next = [...prev];
+      rows.forEach((row) => {
+        const ids = new Set((row.sourceOrderIds || [row.sourceOrderId]).filter(Boolean).map(String));
+        const exists = next.some((x) => {
+          const xIds = (x.sourceOrderIds || (x.sourceOrderId ? [x.sourceOrderId] : [])).filter(Boolean).map(String);
+          return xIds.some((id) => ids.has(id));
+        });
+        if (!exists) { next.push(row); added += 1; }
       });
-      return oldRow ? { ...freshRow, ...oldRow, sourceOrderId: freshRow.sourceOrderId, sourceOrderIds: freshRow.sourceOrderIds, bundleId: freshRow.bundleId, orderStatus: freshRow.orderStatus } : freshRow;
-    }).filter(Boolean);
-
-    return [...autoRows, ...manualRows];
+      return next;
+    });
+    setTimeout(() => alert(added > 0 ? `출고준비 택배 ${added}건을 임시 접수목록에 추가했어요. 새로고침하면 이 목록은 사라져요.` : "이미 택배접수 목록에 들어있는 출고준비 주문이에요."), 0);
   }
+
 
   function writeShippingExcel(rowsToDownload, filename) {
     const rows = rowsToDownload.map((row) => [
@@ -7271,7 +7243,7 @@ ${text}`;
             <button type="button" className="deleteBtn" onClick={clearShippingRows}>전체 삭제</button>
           </div>
 
-          <p className="statusLine">변환된 택배접수 건수: {effectiveShippingRows.length.toLocaleString()}건</p>
+          <p className="statusLine">현재 임시 택배접수 건수: {effectiveShippingRows.length.toLocaleString()}건 · 이 목록은 새로고침/재접속하면 자동으로 비워집니다.</p>
         </section>
 
         <section className="panel shippingTablePanel">
