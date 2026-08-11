@@ -756,11 +756,35 @@ export default function App() {
   }
 
   async function getOrderItems() {
-    const { data, error } = await supabase.from("order_items").select("*").order("id", { ascending: true });
-    if (error) { console.log(error); return []; }
-    const rows = data || [];
-    setOrderItems(rows);
-    return rows;
+    // Supabase/PostgREST는 프로젝트 설정에 따라 한 번의 select 결과가
+    // 최대 1,000행 정도로 잘릴 수 있다. order_items는 누적 데이터라서
+    // 단일 조회를 쓰면 오래된 항목만 남고 최신 주문 상품이 화면에서 사라질 수 있음.
+    // 따라서 1,000개씩 끝까지 페이지 조회해서 전체 주문상품을 가져온다.
+    const pageSize = 1000;
+    let from = 0;
+    let allRows = [];
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("order_items")
+        .select("*")
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.log(error);
+        return allRows;
+      }
+
+      const page = data || [];
+      allRows = allRows.concat(page);
+
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    setOrderItems(allRows);
+    return allRows;
   }
 
   async function getMaterials() {
@@ -1349,8 +1373,8 @@ export default function App() {
 
     setSelectedOrderId(null);
     getProducts();
-    getOrders();
-    getOrderItems();
+    await getOrders();
+    await getOrderItems();
   }
 
   function showSelectedOrderItems() {
