@@ -562,6 +562,11 @@ export default function App() {
   const liveItemDraftTimersRef = useRef({});
   const [liveBulkDiscountRate, setLiveBulkDiscountRate] = useState("");
   const [liveBulkMarginRate, setLiveBulkMarginRate] = useState("");
+  // 상품별 빠른 주문 입력 (라방 상품 -> 주문자 복수 선택)
+  const [liveQuickItemId, setLiveQuickItemId] = useState("");
+  const [liveQuickMemberSearch, setLiveQuickMemberSearch] = useState("");
+  const [liveQuickQtyByMember, setLiveQuickQtyByMember] = useState({});
+  const [liveQuickSaving, setLiveQuickSaving] = useState(false);
   const [memberInfoSearch, setMemberInfoSearch] = useState("");
   const [selectedMemberInfoId, setSelectedMemberInfoId] = useState("");
   const [selectedMemberOrderIds, setSelectedMemberOrderIds] = useState([]);
@@ -5337,6 +5342,163 @@ ${text}`;
     }
   }
 
+  function activeLiveOrderForMember(member, sessionId = selectedLiveSession?.id) {
+    const key = makeMemberKey(member?.name, member?.phone);
+    return [...liveOrders]
+      .filter((o) => String(o.sessionId) === String(sessionId || ""))
+      .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
+      .filter((o) => makeMemberKey(o.buyer, o.phone) === key)
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))[0] || null;
+  }
+
+  function liveQuickExistingQty(member, itemId = liveQuickItemId) {
+    const order = activeLiveOrderForMember(member);
+    return (order?.items || []).filter((it) => String(it.liveItemId) === String(itemId)).reduce((sum, it) => sum + toInt(it.qty), 0);
+  }
+
+  function selectLiveQuickItem(item) {
+    if (!item) return;
+    const qtyMap = {};
+    for (const member of liveMembers) {
+      const qty = liveQuickExistingQty(member, item.id);
+      if (qty > 0) qtyMap[String(member.id)] = qty;
+    }
+    setLiveQuickItemId(String(item.id));
+    setLiveQuickQtyByMember(qtyMap);
+    setLiveQuickMemberSearch("");
+  }
+
+  function setLiveQuickMemberQty(member, qty) {
+    const id = String(member.id);
+    const nextQty = Math.max(0, toInt(qty));
+    setLiveQuickQtyByMember((prev) => {
+      const next = { ...prev };
+      if (nextQty <= 0) delete next[id];
+      else next[id] = nextQty;
+      return next;
+    });
+  }
+
+  function liveQuickOrderMoney(items, baseOrder, session) {
+    const subtotal = (items || []).reduce((sum, it) => sum + toInt(it.price) * toInt(it.qty), 0);
+    const paySubtotal = (items || []).reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum : sum + toInt(it.price) * toInt(it.qty), 0);
+    const shippingApply = baseOrder ? baseOrder.shippingApply !== false : true;
+    const freeShipping = !!baseOrder?.freeShipping;
+    const shippingRefund = !!baseOrder?.shippingRefund;
+    let shipping = shippingApply && subtotal > 0 && !freeShipping ? toInt(session?.shippingFee || 0) : 0;
+    if (shippingRefund && subtotal > 0) shipping -= toInt(session?.shippingFee || 0);
+    const paymentMethod = baseOrder?.paymentMethod || "계좌이체";
+    const feeRate = livePaymentFeeRate(paymentMethod, session);
+    const cardFee = feeRate > 0 ? Math.round(Math.max(0, paySubtotal) * feeRate / 100) : 0;
+    return { subtotal, paySubtotal, shipping, cardFee, total: Math.max(0, paySubtotal + shipping) };
+  }
+
+  async function saveLiveQuickProductOrders() {
+    if (!selectedLiveSession) return alert("라방을 선택해줘.");
+    const item = (selectedLiveSession.products || []).find((it) => String(it.id) === String(liveQuickItemId));
+    if (!item) return alert("왼쪽에서 라방 상품을 먼저 선택해줘.");
+
+    const changes = [];
+    for (const member of liveMembers) {
+      const oldQty = liveQuickExistingQty(member, item.id);
+      const newQty = Math.max(0, toInt(liveQuickQtyByMember[String(member.id)] || 0));
+      if (oldQty !== newQty) changes.push({ member, oldQty, newQty, delta: newQty - oldQty });
+    }
+    if (!changes.length) return alert("변경된 주문자가 없어요.");
+
+    const netDelta = changes.reduce((sum, x) => sum + x.delta, 0);
+    if (netDelta > toInt(item.remainingQty)) return alert(`라방 남은 수량이 부족해요. 추가 필요 ${netDelta}개 / 현재 남음 ${toInt(item.remainingQty)}개`);
+    const selectedCount = Object.values(liveQuickQtyByMember).filter((q) => toInt(q) > 0).length;
+    if (!window.confirm(`${item.name}\n선택 주문자 ${selectedCount}명\n이번 저장으로 남은수량 ${netDelta >= 0 ? "-" : "+"}${Math.abs(netDelta)}개 반영\n\n각 주문자의 현재 정산서에 반영할까요?`)) return;
+
+    setLiveQuickSaving(true);
+    try {
+      const nextSession = {
+        ...selectedLiveSession,
+        products: (selectedLiveSession.products || []).map((li) => String(li.id) === String(item.id)
+          ? { ...li, remainingQty: String(Math.max(0, toInt(li.remainingQty) - netDelta)) }
+          : li)
+      };
+      await saveLiveSessionDb(nextSession);
+
+      const changedOrders = [];
+      for (const { member, newQty } of changes) {
+        const oldOrder = activeLiveOrderForMember(member, selectedLiveSession.id);
+        let items = (oldOrder?.items || []).filter((it) => String(it.liveItemId) !== String(item.id));
+        if (newQty > 0) {
+          items = [{ liveItemId: item.id, productId: item.productId, name: item.name, char1: item.char1, char2: item.char2, wholesale: toInt(item.wholesale), qty: newQty, price: toInt(item.livePrice), prepaid: "N" }, ...items];
+        }
+        if (!oldOrder && newQty <= 0) continue;
+        const moneySummary = liveQuickOrderMoney(items, oldOrder, selectedLiveSession);
+        const memberKey = makeMemberKey(member.name, member.phone);
+        const order = {
+          ...(oldOrder || {}),
+          id: oldOrder?.id || makeLiveId("liveorder"),
+          sessionId: selectedLiveSession.id,
+          liveTitle: selectedLiveSession.title,
+          liveDate: selectedLiveSession.date,
+          createdAt: oldOrder?.createdAt || nowString(),
+          updatedAt: nowString(),
+          locked: oldOrder?.locked || false,
+          canceledAt: "",
+          cancelReason: "",
+          deducted: false,
+          paidAt: oldOrder?.paidAt || "",
+          memberKey,
+          buyer: member.name || "",
+          phone: member.phone || "",
+          postalCode: oldOrder?.postalCode || member.postalCode || "",
+          baseAddress: oldOrder?.baseAddress || member.baseAddress || "",
+          detailAddress: oldOrder?.detailAddress || member.detailAddress || "",
+          address: oldOrder?.address || member.address || [member.baseAddress, member.detailAddress].filter(Boolean).join(" "),
+          paymentMethod: oldOrder?.paymentMethod || "계좌이체",
+          status: oldOrder?.status || "미입금",
+          trackingNo: oldOrder?.trackingNo || "",
+          memo: oldOrder?.memo || member.memo || "",
+          shippingApply: oldOrder ? oldOrder.shippingApply !== false : true,
+          freeShipping: !!oldOrder?.freeShipping,
+          shippingRefund: !!oldOrder?.shippingRefund,
+          cardApply: !!oldOrder?.cardApply,
+          boxWeight: oldOrder?.boxWeight || "2",
+          boxVolume: oldOrder?.boxVolume || "60",
+          household: oldOrder?.household || "생활용품",
+          deliveryMessage: oldOrder?.deliveryMessage || "",
+          keepExpiryDate: oldOrder?.keepExpiryDate || "",
+          points: oldOrder?.points ?? String(member.points || "0"),
+          usedPoints: toInt(oldOrder?.usedPoints || 0),
+          pointRate: oldOrder?.pointRate || "0",
+          earnedPoints: toInt(oldOrder?.earnedPoints || 0),
+          pointBalanceAfter: oldOrder?.pointBalanceAfter ?? toInt(member.points || 0),
+          memberPointsBefore: oldOrder?.memberPointsBefore ?? toInt(member.points || 0),
+          memberPointsAfter: oldOrder?.memberPointsAfter ?? toInt(member.points || 0),
+          pointNote: oldOrder?.pointNote || selectedLiveSession.pointNote || "",
+          items,
+          ...moneySummary,
+        };
+        await saveLiveOrderDb(order);
+        writeLiveOrderStatusOverride(order);
+        changedOrders.push(order);
+      }
+
+      setLiveSessions((prev) => prev.map((s) => String(s.id) === String(nextSession.id) ? nextSession : s));
+      setLiveOrders((prev) => {
+        let next = [...prev];
+        for (const order of changedOrders) {
+          const idx = next.findIndex((o) => String(o.id) === String(order.id));
+          if (idx >= 0) next[idx] = order; else next.unshift(order);
+        }
+        return next;
+      });
+      await writeAudit("live_quick_product_orders", `${selectedLiveSession.title} / ${item.name} / ${changes.length}명 변경`);
+      alert("상품별 주문을 정산서에 반영했어요.");
+    } catch (error) {
+      alert("상품별 주문 저장 실패: " + (error?.message || String(error)));
+      await Promise.all([getLiveSessions(), getLiveOrders()]);
+    } finally {
+      setLiveQuickSaving(false);
+    }
+  }
+
   async function saveLiveOrderAndDeduct() {
     if (!selectedLiveSession) return alert("라방을 선택해줘.");
     if (!liveOrderForm.buyer.trim()) return alert("구매자명을 입력해줘.");
@@ -6460,6 +6622,61 @@ ${text}`;
             <div className="buttonRow"><button onClick={downloadLiveShippingExcel}>입금확인 주문 택배접수 엑셀</button><button type="button" onClick={downloadLiveProductListExcel}>라방상품목록 엑셀</button><button type="button" onClick={restoreLegacyLiveReservedStockForSelectedSession}>구버전 라방예약 재고복구</button><button type="button" onClick={closeLiveSessionRestoreUnsold}>라방 종료 / 미판매 재고 원복</button><button className="deleteBtn" onClick={deleteLiveSessionWithRestore}>라방 삭제</button></div>
           </>}
         </div>
+
+        {selectedLiveSession && <div className="panel liveQuickOrderPanel">
+          <div className="liveQuickHeader">
+            <div>
+              <h2>상품별 주문 입력</h2>
+              <p className="statusLine">왼쪽에서 저장된 라방 상품을 누르고, 오른쪽에서 주문한 사람만 선택한 뒤 저장해줘.</p>
+            </div>
+            <div className="liveQuickSessionBadge"><span>현재 라방</span><b>{selectedLiveSession.date} · {selectedLiveSession.title}</b></div>
+          </div>
+          <div className="liveQuickLayout">
+            <div className="liveQuickProducts">
+              <h3>저장된 라방 상품</h3>
+              <div className="liveQuickProductList">
+                {(selectedLiveSession.products || []).map((item) => {
+                  const sold = Math.max(0, toInt(item.liveQty) - toInt(item.remainingQty));
+                  return <button type="button" key={item.id} className={`liveQuickProductBtn ${String(liveQuickItemId) === String(item.id) ? "active" : ""}`} onClick={() => selectLiveQuickItem(item)}>
+                    <span>{item.name}</span><small>남음 {toInt(item.remainingQty)} / 배정 {toInt(item.liveQty)} · 판매 {sold}</small>
+                  </button>;
+                })}
+                {(selectedLiveSession.products || []).length === 0 && <div className="empty">먼저 아래에서 라방 상품을 등록해줘.</div>}
+              </div>
+            </div>
+            <div className="liveQuickMembers">
+              {(() => {
+                const selectedItem = (selectedLiveSession.products || []).find((it) => String(it.id) === String(liveQuickItemId));
+                if (!selectedItem) return <div className="liveQuickEmpty"><b>상품을 선택해줘.</b><span>선택하면 주문자 버튼이 여기에 떠.</span></div>;
+                const sessionOrders = liveOrders.filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt && String(o.status || "") !== "취소");
+                const orderedKeys = new Set(sessionOrders.map((o) => makeMemberKey(o.buyer, o.phone)).filter(Boolean));
+                const q = String(liveQuickMemberSearch || "").trim().toLowerCase();
+                const matches = (m) => !q || String(m.name || "").toLowerCase().includes(q) || onlyDigits(m.phone).includes(onlyDigits(q)) || phoneLast4(m.phone).includes(q);
+                const previousBuyers = liveMembers.filter((m) => orderedKeys.has(makeMemberKey(m.name, m.phone))).filter(matches);
+                const others = liveMembers.filter((m) => !orderedKeys.has(makeMemberKey(m.name, m.phone))).filter(matches);
+                const renderMember = (m) => {
+                  const qty = toInt(liveQuickQtyByMember[String(m.id)] || 0);
+                  const active = qty > 0;
+                  const order = activeLiveOrderForMember(m);
+                  return <div key={m.id} className={`liveQuickMemberCard ${active ? "selected" : ""}`}>
+                    <button type="button" className="liveQuickMemberMain" onClick={() => setLiveQuickMemberQty(m, active ? 0 : 1)}>
+                      <span className="liveQuickCheck">{active ? "✓" : "□"}</span><b>{m.name}</b><span>{phoneLast4(m.phone)}</span>
+                    </button>
+                    {active && <div className="liveQuickQty"><button type="button" onClick={() => setLiveQuickMemberQty(m, qty - 1)}>−</button><b>{qty}</b><button type="button" onClick={() => setLiveQuickMemberQty(m, qty + 1)}>+</button></div>}
+                    {order && <button type="button" className="liveQuickPreview" onClick={() => openOrderItemsPreview(order)}>현재 정산서</button>}
+                  </div>;
+                };
+                return <>
+                  <div className="liveQuickSelectedTitle"><div><b>선택 상품</b><span>{selectedItem.name}</span></div><div><b>남은 수량</b><span>{toInt(selectedItem.remainingQty)}개</span></div></div>
+                  <div className="liveQuickSearch"><input value={liveQuickMemberSearch} onChange={(e) => setLiveQuickMemberSearch(e.target.value)} placeholder="이름 / 전화번호 / 뒷자리 검색" /><span>버튼 클릭 = 1개 선택 · +/−로 수량 변경</span></div>
+                  {previousBuyers.length > 0 && <div className="liveQuickGroup"><h3>이번 라방 주문자</h3><div className="liveQuickMemberGrid">{previousBuyers.map(renderMember)}</div></div>}
+                  <div className="liveQuickGroup"><h3>{previousBuyers.length ? "다른 회원" : "회원 선택"}</h3><div className="liveQuickMemberGrid">{others.map(renderMember)}</div>{previousBuyers.length === 0 && others.length === 0 && <div className="empty">검색되는 회원이 없어요.</div>}</div>
+                  <div className="liveQuickSaveBar"><span>선택 {Object.values(liveQuickQtyByMember).filter((v) => toInt(v) > 0).length}명 · 총 {Object.values(liveQuickQtyByMember).reduce((sum, v) => sum + toInt(v), 0)}개</span><button type="button" disabled={liveQuickSaving} onClick={saveLiveQuickProductOrders}>{liveQuickSaving ? "저장 중..." : "선택 주문 저장"}</button></div>
+                </>;
+              })()}
+            </div>
+          </div>
+        </div>}
 
         <div className="liveGrid liveWorkflowGrid">
           <div className="panel liveMemberQuickPanel">
