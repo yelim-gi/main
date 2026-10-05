@@ -4674,7 +4674,8 @@ ${text}`;
       stockAdjusted = true;
       await saveLiveSessionDb(nextSession);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s)));
-      // 새로 추가(또는 수량을 추가)한 라방 상품을 상품별 주문입력의 현재 상품으로 자동 선택한다.
+
+      // 새로 추가(또는 수량을 추가)한 라방 상품을 상품별 주문 입력의 현재 상품으로 즉시 선택한다.
       const justAddedItem = nextProducts.find((x) => String(x.productId) === String(product.id));
       if (justAddedItem) selectLiveQuickItem(justAddedItem);
     } catch (error) {
@@ -4696,23 +4697,26 @@ ${text}`;
     try {
       await saveLiveSessionDb(nextSession);
 
-      // 같은 라방에서 상품명/라방가를 고치면 이미 작성된 모든 해당 주문서에도 즉시 동기화한다.
-      // PDF는 주문서 items의 price를 읽기 때문에 가격과 주문 합계를 함께 다시 계산해야 한다.
+      // 같은 라방의 기존 주문서도 상품명/라방가 변경을 즉시 따라가게 한다.
+      // PDF는 주문서 items.price를 사용하므로 가격까지 동기화해야 수정된 라방가가 PDF에도 반영된다.
       const renamed = Object.prototype.hasOwnProperty.call(patch, "name") && String(patch.name || "") !== String(oldItem?.name || "");
       const repriced = Object.prototype.hasOwnProperty.call(patch, "livePrice") && toInt(patch.livePrice) !== toInt(oldItem?.livePrice);
       let changedOrders = [];
       if (renamed || repriced) {
         changedOrders = liveOrders
           .filter((o) => String(o.sessionId) === String(selectedLiveSession.id))
-          .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
           .filter((o) => (o.items || []).some((it) => String(it.liveItemId) === String(itemId)))
           .map((o) => {
-            const items = (o.items || []).map((it) => String(it.liveItemId) === String(itemId) ? {
-              ...it,
-              ...(renamed ? { name: String(patch.name || "") } : {}),
-              ...(repriced ? { price: toInt(patch.livePrice) } : {}),
-            } : it);
-            return { ...o, items, ...liveQuickOrderMoney(items, o, nextSession), updatedAt: nowString() };
+            const items = (o.items || []).map((it) => {
+              if (String(it.liveItemId) !== String(itemId)) return it;
+              return {
+                ...it,
+                ...(renamed ? { name: String(patch.name || "") } : {}),
+                ...(repriced ? { price: toInt(patch.livePrice) } : {}),
+              };
+            });
+            const moneySummary = liveQuickOrderMoney(items, o, nextSession);
+            return { ...o, items, ...moneySummary, updatedAt: nowString() };
           });
         for (const order of changedOrders) await saveLiveOrderDb(order);
       }
@@ -4847,18 +4851,7 @@ ${text}`;
     const nextSession = { ...selectedLiveSession, products: nextProducts };
     try {
       await saveLiveSessionDb(nextSession);
-      // 일괄 할인/마진/초기화로 라방가가 바뀐 경우에도 같은 라방의 기존 주문 가격을 함께 갱신한다.
-      const priceByItemId = new Map(nextProducts.filter((it) => ids.has(String(it.id))).map((it) => [String(it.id), toInt(it.livePrice)]));
-      const changedOrders = liveOrders
-        .filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt && String(o.status || "") !== "취소")
-        .filter((o) => (o.items || []).some((it) => priceByItemId.has(String(it.liveItemId)) && toInt(it.price) !== priceByItemId.get(String(it.liveItemId))))
-        .map((o) => {
-          const items = (o.items || []).map((it) => priceByItemId.has(String(it.liveItemId)) ? { ...it, price: priceByItemId.get(String(it.liveItemId)) } : it);
-          return { ...o, items, ...liveQuickOrderMoney(items, o, nextSession), updatedAt: nowString() };
-        });
-      for (const order of changedOrders) await saveLiveOrderDb(order);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s)));
-      if (changedOrders.length) setLiveOrders((prev) => prev.map((o) => changedOrders.find((x) => String(x.id) === String(o.id)) || o));
     } catch (error) {
       alert("라방상품 일괄 수정 실패: " + error.message);
     }
