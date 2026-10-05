@@ -4654,22 +4654,17 @@ ${text}`;
       }
 
       let nextProducts = [];
-      let addedOrUpdatedLiveItem = null;
       const exists = (session.products || []).find((x) => String(x.productId) === String(product.id));
       if (exists) {
-        nextProducts = (session.products || []).map((x) => {
-          if (String(x.productId) !== String(product.id)) return x;
-          const updated = { ...x, stockMode: "reserved_deducted", liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) };
-          addedOrUpdatedLiveItem = updated;
-          return updated;
-        });
+        nextProducts = (session.products || []).map((x) => String(x.productId) === String(product.id)
+          ? { ...x, stockMode: "reserved_deducted", liveQty: String(toInt(x.liveQty) + 1), remainingQty: String(toInt(x.remainingQty) + 1) }
+          : x);
       } else {
         const item = {
           id: makeLiveId("liveitem"), productId: product.id, name: product.name, originalName: product.name, char1: product.char1, char2: product.char2,
           category: product.category, wholesale: toInt(product.wholesale), retail: toInt(product.retail), livePrice: toInt(product.retail), discountRate: "0",
           liveQty: "1", remainingQty: "1", stockMode: "reserved_deducted", memo: ""
         };
-        addedOrUpdatedLiveItem = item;
         nextProducts = [item, ...(session.products || [])];
       }
       const nextSession = { ...session, products: nextProducts };
@@ -4679,8 +4674,6 @@ ${text}`;
       stockAdjusted = true;
       await saveLiveSessionDb(nextSession);
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(session.id) ? nextSession : s)));
-      // 방금 라방에 추가(또는 수량을 추가)한 상품을 상품별 주문 입력의 현재 상품으로 자동 선택한다.
-      if (addedOrUpdatedLiveItem) selectLiveQuickItem(addedOrUpdatedLiveItem);
     } catch (error) {
       if (stockAdjusted) {
         try { await adjustProductStockByProductId(product.id, +1); } catch {}
@@ -4700,32 +4693,19 @@ ${text}`;
     try {
       await saveLiveSessionDb(nextSession);
 
-      // 라방용 상품명/라방가를 바꾸면 같은 라방의 기존 주문서에도 즉시 동기화한다.
+      // 라방용 상품명을 바꾸면 이미 작성된 해당 라방 주문서의 같은 품목명도 함께 변경한다.
       const renamed = Object.prototype.hasOwnProperty.call(patch, "name") && String(patch.name || "") !== String(oldItem?.name || "");
-      const repriced = Object.prototype.hasOwnProperty.call(patch, "livePrice") && toInt(patch.livePrice) !== toInt(oldItem?.livePrice);
       let changedOrders = [];
-      if (renamed || repriced) {
-        const syncedName = renamed ? String(patch.name || "") : String(oldItem?.name || "");
-        const syncedPrice = repriced ? toInt(patch.livePrice) : toInt(oldItem?.livePrice);
-        const sourceOrders = liveOrders
+      if (renamed) {
+        changedOrders = liveOrders
           .filter((o) => String(o.sessionId) === String(selectedLiveSession.id))
-          .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
-          .filter((o) => (o.items || []).some((it) => String(it.liveItemId) === String(itemId)));
-
-        for (const order of sourceOrders) {
-          const nextItems = (order.items || []).map((it) => {
-            if (String(it.liveItemId) !== String(itemId)) return it;
-            return {
-              ...it,
-              ...(renamed ? { name: syncedName } : {}),
-              ...(repriced ? { price: syncedPrice } : {}),
-            };
-          });
-          const moneySummary = liveQuickOrderMoney(nextItems, order, nextSession);
-          const nextOrder = { ...order, items: nextItems, ...moneySummary, updatedAt: nowString() };
-          await saveLiveOrderDb(nextOrder);
-          changedOrders.push(nextOrder);
-        }
+          .filter((o) => (o.items || []).some((it) => String(it.liveItemId) === String(itemId)))
+          .map((o) => ({
+            ...o,
+            items: (o.items || []).map((it) => String(it.liveItemId) === String(itemId) ? { ...it, name: String(patch.name || "") } : it),
+            updatedAt: nowString(),
+          }));
+        for (const order of changedOrders) await saveLiveOrderDb(order);
       }
 
       preserveLiveScroll(() => setLiveSessions((prev) => prev.map((s) => String(s.id) === String(selectedLiveSession.id) ? nextSession : s)));
