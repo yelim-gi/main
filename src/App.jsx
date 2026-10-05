@@ -6651,9 +6651,26 @@ ${text}`;
                 const sessionOrders = liveOrders.filter((o) => String(o.sessionId) === String(selectedLiveSession.id) && !o.canceledAt && String(o.status || "") !== "취소");
                 const orderedKeys = new Set(sessionOrders.map((o) => makeMemberKey(o.buyer, o.phone)).filter(Boolean));
                 const q = String(liveQuickMemberSearch || "").trim().toLowerCase();
-                const matches = (m) => !q || String(m.name || "").toLowerCase().includes(q) || onlyDigits(m.phone).includes(onlyDigits(q)) || phoneLast4(m.phone).includes(q);
-                const previousBuyers = liveMembers.filter((m) => orderedKeys.has(makeMemberKey(m.name, m.phone))).filter(matches);
-                const others = liveMembers.filter((m) => !orderedKeys.has(makeMemberKey(m.name, m.phone))).filter(matches);
+                const qDigits = onlyDigits(q);
+                const nameSort = (a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko", { sensitivity: "base" });
+                const matchScore = (m) => {
+                  if (!q) return 0;
+                  const name = String(m.name || "").trim().toLowerCase();
+                  const phone = onlyDigits(m.phone);
+                  const last4 = phoneLast4(m.phone);
+                  if (name === q) return 100;
+                  if (name.startsWith(q)) return 90;
+                  if (name.includes(q)) return 80;
+                  if (qDigits && last4 === qDigits) return 75;
+                  if (qDigits && phone.endsWith(qDigits)) return 70;
+                  if (qDigits && phone.includes(qDigits)) return 60;
+                  return -1;
+                };
+                const ranked = (list) => list.filter((m) => matchScore(m) >= 0).sort((a, b) => q ? (matchScore(b) - matchScore(a) || nameSort(a, b)) : nameSort(a, b));
+                const previousBuyers = ranked(liveMembers.filter((m) => orderedKeys.has(makeMemberKey(m.name, m.phone))));
+                const others = ranked(liveMembers.filter((m) => !orderedKeys.has(makeMemberKey(m.name, m.phone))));
+                const draftDelta = liveMembers.reduce((sum, m) => sum + Math.max(0, toInt(liveQuickQtyByMember[String(m.id)] || 0)) - liveQuickExistingQty(m, selectedItem.id), 0);
+                const liveRemainingPreview = Math.max(0, toInt(selectedItem.remainingQty) - draftDelta);
                 const renderMember = (m) => {
                   const qty = toInt(liveQuickQtyByMember[String(m.id)] || 0);
                   const active = qty > 0;
@@ -6667,8 +6684,8 @@ ${text}`;
                   </div>;
                 };
                 return <>
-                  <div className="liveQuickSelectedTitle"><div><b>선택 상품</b><span>{selectedItem.name}</span></div><div><b>남은 수량</b><span>{toInt(selectedItem.remainingQty)}개</span></div></div>
-                  <div className="liveQuickSearch"><input value={liveQuickMemberSearch} onChange={(e) => setLiveQuickMemberSearch(e.target.value)} placeholder="이름 / 전화번호 / 뒷자리 검색" /><span>버튼 클릭 = 1개 선택 · +/−로 수량 변경</span></div>
+                  <div className="liveQuickSelectedTitle"><div><b>선택 상품</b><span>{selectedItem.name}</span></div><div><b>남은 수량</b><span>{liveRemainingPreview}개</span></div></div>
+                  <div className="liveQuickSearch"><input value={liveQuickMemberSearch} onChange={(e) => setLiveQuickMemberSearch(e.target.value)} placeholder="이름 / 전화번호 / 뒷자리 검색" /><span>검색 결과는 일치하는 회원이 맨 앞에 표시돼요 · 버튼 클릭 = 1개 선택 · +/−로 수량 변경</span></div>
                   {previousBuyers.length > 0 && <div className="liveQuickGroup"><h3>이번 라방 주문자</h3><div className="liveQuickMemberGrid">{previousBuyers.map(renderMember)}</div></div>}
                   <div className="liveQuickGroup"><h3>{previousBuyers.length ? "다른 회원" : "회원 선택"}</h3><div className="liveQuickMemberGrid">{others.map(renderMember)}</div>{previousBuyers.length === 0 && others.length === 0 && <div className="empty">검색되는 회원이 없어요.</div>}</div>
                   <div className="liveQuickSaveBar"><span>선택 {Object.values(liveQuickQtyByMember).filter((v) => toInt(v) > 0).length}명 · 총 {Object.values(liveQuickQtyByMember).reduce((sum, v) => sum + toInt(v), 0)}개</span><button type="button" disabled={liveQuickSaving} onClick={saveLiveQuickProductOrders}>{liveQuickSaving ? "저장 중..." : "선택 주문 저장"}</button></div>
