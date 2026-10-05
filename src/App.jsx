@@ -4710,11 +4710,16 @@ ${text}`;
         const sourceOrders = liveOrders
           .filter((o) => String(o.sessionId) === String(selectedLiveSession.id))
           .filter((o) => !o.canceledAt && String(o.status || "") !== "취소")
-          .filter((o) => (o.items || []).some((it) => String(it.liveItemId) === String(itemId)));
+          .filter((o) => (o.items || []).some((it) =>
+            String(it.liveItemId || "") === String(itemId) ||
+            (oldItem?.productId && String(it.productId || "") === String(oldItem.productId))
+          ));
 
         for (const order of sourceOrders) {
           const nextItems = (order.items || []).map((it) => {
-            if (String(it.liveItemId) !== String(itemId)) return it;
+            const sameLiveItem = String(it.liveItemId || "") === String(itemId);
+            const sameProduct = oldItem?.productId && String(it.productId || "") === String(oldItem.productId);
+            if (!sameLiveItem && !sameProduct) return it;
             return {
               ...it,
               ...(renamed ? { name: syncedName } : {}),
@@ -6007,11 +6012,20 @@ ${text}`;
 
   function liveInvoiceHtml(order, autoPrint = true) {
     const session = liveSessions.find((s) => String(s.id) === String(order.sessionId)) || selectedLiveSession || {};
-    const rows = (order.items || []).map((it, idx) => `
+    // PDF/정산서는 주문 저장 당시 가격보다 현재 같은 라방의 라방가를 우선 사용한다.
+    // 예전 주문처럼 liveItemId가 없거나 달라도 productId로 한 번 더 찾아 가격 변경을 놓치지 않는다.
+    const invoiceItems = (order.items || []).map((it) => {
+      const currentLiveItem = (session.products || []).find((li) =>
+        (it.liveItemId && String(li.id || "") === String(it.liveItemId)) ||
+        (it.productId && String(li.productId || "") === String(it.productId))
+      );
+      return currentLiveItem ? { ...it, name: currentLiveItem.name || it.name, price: toInt(currentLiveItem.livePrice) } : it;
+    });
+    const rows = invoiceItems.map((it, idx) => `
       <tr><td>${idx + 1}</td><td>${htmlSafe(it.name || "")}</td><td>${toInt(it.qty)}</td><td>${money(toInt(it.price) * toInt(it.qty))}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "Y" : "N"}</td><td>${String(it.prepaid).toUpperCase() === "Y" ? "0원" : money(toInt(it.price) * toInt(it.qty))}</td></tr>
     `).join("");
-    const prepaidAmount = (order.items || []).reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum + toInt(it.price) * toInt(it.qty) : sum, 0);
-    const orderSubtotal = Object.prototype.hasOwnProperty.call(order || {}, "subtotal") ? toInt(order.subtotal) : toInt(order.paySubtotal) + prepaidAmount;
+    const prepaidAmount = invoiceItems.reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum + toInt(it.price) * toInt(it.qty) : sum, 0);
+    const orderSubtotal = invoiceItems.reduce((sum, it) => sum + toInt(it.price) * toInt(it.qty), 0);
     const prepaidLine = prepaidAmount > 0 ? `<div><span>선결제 차감</span><b>-${money(prepaidAmount)}</b></div>` : "";
     const keepExpiryText = liveOrderKeepExpiryText(order);
     const keepShipText = liveOrderKeepShipText(order);
@@ -6023,7 +6037,7 @@ ${text}`;
     // v160: 정산서에는 카드수수료/포인트 정보를 표시하지 않습니다.
     return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlSafe(liveInvoiceFileBase(order))}</title><style>
       @page{size:210mm ${pageHeightMm}mm;margin:0} html,body{margin:0;padding:0;background:#ddd;font-family:Arial,'맑은 고딕',sans-serif;color:#4a3b00;font-size:9px}.page{width:210mm;height:${pageHeightMm}mm;min-height:${pageHeightMm}mm;margin:6mm auto;background:white;padding:5mm;box-sizing:border-box;position:relative;page-break-after:auto;overflow:hidden}.wm{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);font-size:42px;font-weight:900;color:#4a3b00;opacity:.03;pointer-events:none;z-index:0;white-space:nowrap}.content{position:relative;z-index:1}h1{text-align:center;font-size:17px;margin:0 0 5px;line-height:1.15}.info{width:100%;border-collapse:collapse;margin-bottom:5px;table-layout:fixed}.info th{background:#fff2b3;width:15%}.info th,.info td{border:1px solid #d6c15c;padding:3px 4px;text-align:left;font-size:9px;line-height:1.18;word-break:break-all}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th{background:#ffd84d}.items th,.items td{border:1px solid #d6c15c;padding:2px 3px;text-align:center;font-size:8.5px;line-height:1.12}.items td:nth-child(2){text-align:left;white-space:normal;word-break:keep-all}.sum{margin:5px auto 4px;width:300px;border:1px solid #d0aa00;background:#fff9e6;font-size:9px}.sum div{display:flex;justify-content:space-between;border-bottom:1px solid #eadb91;padding:3px 8px;line-height:1.15}.sum div:last-child{border-bottom:none}.sum .total{background:#ffd84d;font-weight:900;font-size:11px}.keepNotice{border:1px solid #d0aa00;background:#fff2b3;padding:4px 8px;margin:4px 0;font-size:9px;font-weight:800;text-align:center;line-height:1.15}.notice{white-space:pre-wrap;border:1px solid #d6c15c;background:#fffdf3;padding:5px;margin-top:4px;font-size:8.5px;line-height:1.18}.no-print{position:fixed;right:12px;top:12px;z-index:99}@media print{html,body{background:white}.no-print{display:none}.page{margin:0;box-shadow:none;width:210mm;height:${pageHeightMm}mm;min-height:${pageHeightMm}mm;padding:5mm;page-break-after:always}.page:last-child{page-break-after:auto}}
-    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr>${keepInfoRow}</table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(orderSubtotal)}</b></div>${prepaidLine}<div><span>배송비</span><b>${htmlSafe(liveShippingDisplay(order))}</b></div><div class="total"><span>최종 결제금액</span><b>${money(order.total)}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
+    </style></head><body><button class="no-print" onclick="window.print()">PDF 저장/인쇄</button><div class="page"><div class="wm">여깁니다유</div><div class="content"><h1>여깁니다유 라이브 정산서</h1><table class="info"><tr><th>라방날짜</th><td>${htmlSafe(order.liveDate || "")}</td><th>정산번호</th><td>${htmlSafe(order.id || "")}</td></tr><tr><th>구매자</th><td>${htmlSafe(order.buyer || "")}</td><th>연락처</th><td>${htmlSafe(order.phone || "")}</td></tr><tr><th>주소</th><td colspan="3">${htmlSafe(orderAddressOf(order))}</td></tr><tr><th>결제방법</th><td>${htmlSafe(order.paymentMethod || "")}</td><th>입금계좌</th><td>${htmlSafe([session.bankName, session.accountNumber, session.accountHolder].filter(Boolean).join(" "))}</td></tr>${keepInfoRow}</table><table class="items"><thead><tr><th style="width:36px">No</th><th>상품명</th><th style="width:44px">수량</th><th style="width:78px">금액</th><th style="width:56px">선결제</th><th style="width:82px">실결제</th></tr></thead><tbody>${rows || '<tr><td colspan="6">품목 없음</td></tr>'}</tbody></table><div class="sum"><div><span>상품합계</span><b>${money(orderSubtotal)}</b></div>${prepaidLine}<div><span>배송비</span><b>${htmlSafe(liveShippingDisplay(order))}</b></div><div class="total"><span>최종 결제금액</span><b>${money(Math.max(0, invoiceItems.reduce((sum, it) => String(it.prepaid).toUpperCase() === "Y" ? sum : sum + toInt(it.price) * toInt(it.qty), 0) + toInt(order.shipping)))}</b></div></div>${keepNotice}<div class="notice">${htmlSafe(session.notice || "입금 확인 순서대로 포장 후 출고됩니다.")}</div></div></div>${autoPrint ? '<script>setTimeout(()=>window.print(), 500)</script>' : ''}</body></html>`;
   }
 
   function openLiveInvoicesPrint(ordersToPrint) {
