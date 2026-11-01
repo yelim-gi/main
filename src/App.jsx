@@ -8,13 +8,14 @@ const ADMIN_EMAIL = "qzwxec88888@gmail.com";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import "./App.css";
+import DiscountSimulator from "./DiscountSimulator";
 
 const PRICE_RANGES = [
   "전체", "0~5000", "5000~10000", "10000~15000", "15000~20000",
   "20000~25000", "25000~30000", "30000~35000", "35000+",
 ];
 
-const TABS = ["대시보드", "정산매입매출", "AI사입입고분석", "재고관리", "수동박스", "주문관리", "택배접수", "라방주문", "회원정보", "이벤트경품"];
+const TABS = ["대시보드", "정산매입매출", "AI사입입고분석", "재고관리", "재고할인", "수동박스", "주문관리", "택배접수", "라방주문", "회원정보", "이벤트경품"];
 
 function nowString() {
   const d = new Date();
@@ -8080,6 +8081,7 @@ ${text}`;
       if (activeTab === "대시보드") return DashboardPage();
       if (activeTab === "정산매입매출") return FinanceReportPage();
       if (activeTab === "재고관리") return InventoryPage();
+      if (activeTab === "재고할인") return <DiscountSimulator products={products} />;
       if (activeTab === "수동박스") return ComposePage();
       if (activeTab === "AI사입입고분석") return AiImportPage();
       if (activeTab === "주문관리") return OrdersPage();
